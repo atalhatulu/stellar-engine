@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://b8m3y6yap2v4n"]
+
+[ext_resource type="Script" path="res://scripts/core/player.gd" id="1_player"]
+
+[node name="Player" type="Node3D"]
+script = ExtResource("1_player")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+current = true
+far = 20000.0

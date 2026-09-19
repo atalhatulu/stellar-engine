@@ -1,0 +1,34 @@
+[gd_scene format=3 uid="uid://gr178o1hsaid"]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_0xm2m"]
+[ext_resource type="PackedScene" path="res://scenes/spacecraft.tscn" id="2_spacecraft"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_0xm2m")
+
+[node name="Spacecraft" parent="." instance=ExtResource("2_spacecraft")]
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+
+[node name="HUD" parent="." instance=ExtResource("4_hud")]
+
+[node name="Control" type="Control" parent="."]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="RichTextLabel" type="RichTextLabel" parent="Control"]
+layout_mode = 0
+offset_right = 1920.0
+offset_bottom = 1080.0
+mouse_filter = 2
+bbcode_enabled = true

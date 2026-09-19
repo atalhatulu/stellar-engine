@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c3q0w2e8m5k1v"]
+
+[ext_resource type="Script" path="res://scripts/core/spacecraft.gd" id="1_spacecraft"]
+
+[node name="Spacecraft" type="Node3D"]
+script = ExtResource("1_spacecraft")
