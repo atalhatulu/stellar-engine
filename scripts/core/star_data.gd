@@ -15,6 +15,10 @@ var base_color: Color
 var light_color: Color
 var light_energy: float
 var luminosity: float = 1.0
+var system_radius_m: float = 0.0
+var activation_radius_visual: float = 0.0
+var deactivation_radius_visual: float = 0.0
+var discovered: bool = false
 var system_type: String = "STANDARD"
 var is_binary_candidate: bool = false
 var has_asteroid_belt: bool = false

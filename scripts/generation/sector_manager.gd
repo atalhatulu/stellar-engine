@@ -43,91 +43,14 @@ func generate_sector(coord: Vector3i) -> Array:
 	var stars: Array = []
 	var star_count: int = rng.randi_range(24, 40)
 	
-	var base_x: float = float(coord.x) * SECTOR_SIZE
-	var base_y: float = float(coord.y) * SECTOR_SIZE
-	var base_z: float = float(coord.z) * SECTOR_SIZE
+	var base_pos := Vector3(
+		float(coord.x) * SECTOR_SIZE,
+		float(coord.y) * SECTOR_SIZE,
+		float(coord.z) * SECTOR_SIZE
+	)
 	
 	for i in range(star_count):
-		var star = StarData.new()
-		star.unique_id = "SEC_%d_%d_%d_S%d" % [coord.x, coord.y, coord.z, i + 1]
-		star.name = "S_%d_%d_%d_%d" % [coord.x, coord.y, coord.z, i + 1]
-		star.sector_coord = coord
-		star.system_seed = int(rng.randi()) & 0x7FFFFFFF
-		
-		# Sektör sınırları içinde hafif iç kenar marjı (%5-%95) ile yerleştirme
-		var local_x = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-		var local_y = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-		var local_z = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-		
-		star.stellar_x = base_x + local_x
-		star.stellar_y = base_y + local_y
-		star.stellar_z = base_z + local_z
-		
-		# Spektral tip, yarıçap, parlaklık ve renk dağılımı (Canlı Spektral Renkler)
-		var star_roll = rng.randf()
-		if star_roll < 0.68:
-			# Kırmızı Cüce (M-tipi) - Evrenin en yaygın yıldızları (%68)
-			star.spectral_type = "Kırmızı Cüce"
-			star.radius = rng.randf_range(160000000.0, 320000000.0)
-			star.base_color = Color(1.0, 0.28, 0.12)
-			star.light_color = Color(1.0, 0.45, 0.25)
-			star.light_energy = rng.randf_range(0.9, 1.15)
-			star.luminosity = rng.randf_range(0.15, 0.35)
-		elif star_roll < 0.84:
-			# Turuncu Cüce (K-tipi) - Sıcak mandalina/turuncu (%16)
-			star.spectral_type = "Turuncu Cüce"
-			star.radius = rng.randf_range(320000000.0, 460000000.0)
-			star.base_color = Color(1.0, 0.55, 0.14)
-			star.light_color = Color(1.0, 0.72, 0.38)
-			star.light_energy = rng.randf_range(1.15, 1.35)
-			star.luminosity = rng.randf_range(0.45, 0.75)
-		elif star_roll < 0.93:
-			# Sarı Cüce (G-tipi) - Güneş benzeri altın sarısı (%9)
-			star.spectral_type = "Sarı Cüce"
-			star.radius = rng.randf_range(460000000.0, 620000000.0)
-			star.base_color = Color(1.0, 0.88, 0.28)
-			star.light_color = Color(1.0, 0.94, 0.75)
-			star.light_energy = rng.randf_range(1.35, 1.6)
-			star.luminosity = rng.randf_range(0.9, 1.25)
-		elif star_roll < 0.975:
-			# Beyaz Yıldız (F/A-tipi) - Parlak gümüşi beyaz (%4.5)
-			star.spectral_type = "Beyaz Yıldız"
-			star.radius = rng.randf_range(620000000.0, 880000000.0)
-			star.base_color = Color(0.92, 0.96, 1.0)
-			star.light_color = Color(0.96, 0.98, 1.0)
-			star.light_energy = rng.randf_range(1.65, 2.0)
-			star.luminosity = rng.randf_range(1.6, 2.6)
-		elif star_roll < 0.990:
-			# Mavi Dev (B/O-tipi) - Canlı elektrik mavisi (%1.5)
-			star.spectral_type = "Mavi Dev"
-			star.radius = rng.randf_range(950000000.0, 1450000000.0)
-			star.base_color = Color(0.25, 0.58, 1.0)
-			star.light_color = Color(0.65, 0.82, 1.0)
-			star.light_energy = rng.randf_range(2.2, 2.8)
-			star.luminosity = rng.randf_range(3.5, 6.0)
-		else:
-			# Kırmızı Dev (M/K-tipi Dev) - Derin kızıl/yakut kırmızısı dev (%1.0)
-			star.spectral_type = "Kırmızı Dev"
-			star.radius = rng.randf_range(1300000000.0, 2100000000.0)
-			star.base_color = Color(1.0, 0.12, 0.04)
-			star.light_color = Color(1.0, 0.32, 0.15)
-			star.light_energy = rng.randf_range(1.8, 2.4)
-			star.luminosity = rng.randf_range(2.2, 4.2)
-			
-		# Gelecek uyumluluğu ve nadir sistem sınıflandırması (Aşama 7)
-		var type_roll = rng.randf()
-		if type_roll < 0.12:
-			star.system_type = "EMPTY"
-		elif type_roll < 0.92:
-			star.system_type = "STANDARD"
-		elif type_roll < 0.96:
-			star.system_type = "ASTEROID_RICH"
-			star.has_asteroid_belt = true
-		else:
-			star.system_type = "BINARY_CANDIDATE"
-			star.is_binary_candidate = true
-			
-		stars.append(star)
+		stars.append(_build_star_data(rng, coord, i, base_pos))
 		
 	return stars
 
@@ -141,9 +64,11 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 	if target_index >= star_count:
 		target_index = target_index % star_count
 		
-	var base_x: float = float(coord.x) * SECTOR_SIZE
-	var base_y: float = float(coord.y) * SECTOR_SIZE
-	var base_z: float = float(coord.z) * SECTOR_SIZE
+	var base_pos := Vector3(
+		float(coord.x) * SECTOR_SIZE,
+		float(coord.y) * SECTOR_SIZE,
+		float(coord.z) * SECTOR_SIZE
+	)
 	
 	# Hedef yıldıza kadar olan önceki adımları deterministik tüket
 	for i in range(target_index):
@@ -154,22 +79,29 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		var _sr = rng.randf()
 		var _tr = rng.randf()
 		
+	return _build_star_data(rng, coord, target_index, base_pos)
+
+# Tekil yıldız özelliklerini üreten merkezi deterministik üretim boru hattı (DRY)
+static func _build_star_data(rng: RandomNumberGenerator, coord: Vector3i, index: int, base_pos: Vector3) -> StarData:
 	var star = StarData.new()
-	star.unique_id = "SEC_%d_%d_%d_S%d" % [coord.x, coord.y, coord.z, target_index + 1]
-	star.name = "S_%d_%d_%d_%d" % [coord.x, coord.y, coord.z, target_index + 1]
+	star.unique_id = "SEC_%d_%d_%d_S%d" % [coord.x, coord.y, coord.z, index + 1]
+	star.name = "S_%d_%d_%d_%d" % [coord.x, coord.y, coord.z, index + 1]
 	star.sector_coord = coord
 	star.system_seed = int(rng.randi()) & 0x7FFFFFFF
 	
+	# Sektör sınırları içinde hafif iç kenar marjı (%5-%95) ile yerleştirme
 	var local_x = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
 	var local_y = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
 	var local_z = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
 	
-	star.stellar_x = base_x + local_x
-	star.stellar_y = base_y + local_y
-	star.stellar_z = base_z + local_z
+	star.stellar_x = base_pos.x + local_x
+	star.stellar_y = base_pos.y + local_y
+	star.stellar_z = base_pos.z + local_z
 	
+	# Spektral tip, yarıçap, parlaklık ve renk dağılımı (Canlı Spektral Renkler)
 	var star_roll = rng.randf()
 	if star_roll < 0.68:
+		# Kırmızı Cüce (M-tipi) - Evrenin en yaygın yıldızları (%68)
 		star.spectral_type = "Kırmızı Cüce"
 		star.radius = rng.randf_range(160000000.0, 320000000.0)
 		star.base_color = Color(1.0, 0.28, 0.12)
@@ -177,6 +109,7 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		star.light_energy = rng.randf_range(0.9, 1.15)
 		star.luminosity = rng.randf_range(0.15, 0.35)
 	elif star_roll < 0.84:
+		# Turuncu Cüce (K-tipi) - Sıcak mandalina/turuncu (%16)
 		star.spectral_type = "Turuncu Cüce"
 		star.radius = rng.randf_range(320000000.0, 460000000.0)
 		star.base_color = Color(1.0, 0.55, 0.14)
@@ -184,6 +117,7 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		star.light_energy = rng.randf_range(1.15, 1.35)
 		star.luminosity = rng.randf_range(0.45, 0.75)
 	elif star_roll < 0.93:
+		# Sarı Cüce (G-tipi) - Güneş benzeri altın sarısı (%9)
 		star.spectral_type = "Sarı Cüce"
 		star.radius = rng.randf_range(460000000.0, 620000000.0)
 		star.base_color = Color(1.0, 0.88, 0.28)
@@ -191,6 +125,7 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		star.light_energy = rng.randf_range(1.35, 1.6)
 		star.luminosity = rng.randf_range(0.9, 1.25)
 	elif star_roll < 0.975:
+		# Beyaz Yıldız (F/A-tipi) - Parlak gümüşi beyaz (%4.5)
 		star.spectral_type = "Beyaz Yıldız"
 		star.radius = rng.randf_range(620000000.0, 880000000.0)
 		star.base_color = Color(0.92, 0.96, 1.0)
@@ -198,6 +133,7 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		star.light_energy = rng.randf_range(1.65, 2.0)
 		star.luminosity = rng.randf_range(1.6, 2.6)
 	elif star_roll < 0.990:
+		# Mavi Dev (B/O-tipi) - Canlı elektrik mavisi (%1.5)
 		star.spectral_type = "Mavi Dev"
 		star.radius = rng.randf_range(950000000.0, 1450000000.0)
 		star.base_color = Color(0.25, 0.58, 1.0)
@@ -205,6 +141,7 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		star.light_energy = rng.randf_range(2.2, 2.8)
 		star.luminosity = rng.randf_range(3.5, 6.0)
 	else:
+		# Kırmızı Dev (M/K-tipi Dev) - Derin kızıl/yakut kırmızısı dev (%1.0)
 		star.spectral_type = "Kırmızı Dev"
 		star.radius = rng.randf_range(1300000000.0, 2100000000.0)
 		star.base_color = Color(1.0, 0.12, 0.04)
@@ -212,6 +149,7 @@ static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int
 		star.light_energy = rng.randf_range(1.8, 2.4)
 		star.luminosity = rng.randf_range(2.2, 4.2)
 		
+	# Gelecek uyumluluğu ve nadir sistem sınıflandırması (Aşama 7)
 	var type_roll = rng.randf()
 	if type_roll < 0.12:
 		star.system_type = "EMPTY"

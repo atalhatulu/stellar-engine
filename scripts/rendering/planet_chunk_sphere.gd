@@ -54,16 +54,16 @@ const LEVEL_MERGE_THRESHOLDS: Array = [
 # ── Topoğrafya Ölçeği Parametreleri ──────────────────────────────────────────
 # Normal kayalık gezegenlerde toplam yükseklik genliği 5–15 km bandındadır (varsayılan: 12 km).
 # Debug ve doğrulama için 30–50 km bandına çekilebilir.
-static var elevation_scale_km: float = 12.0
+static var elevation_scale_km: float = 16.0
 static var debug_elevation_override_km: float = 0.0
 
 static func get_elevation_scale_km(body_radius: float) -> float:
 	if debug_elevation_override_km > 0.0:
 		return debug_elevation_override_km
-	# Küçük test gövdesinde 12 km korunur. Ana oyundaki binlerce km
+	# Küçük test gövdesinde 16 km korunur. Ana oyundaki binlerce km
 	# yarıçaplı gezegenlerde aynı değer silüette görünmez kaldığından ölçek
 	# yarıçapın %0.8'ine kadar çıkar, fakat 32 km'de güvenli biçimde durur.
-	return clampf(maxf(elevation_scale_km, body_radius * 0.000008), elevation_scale_km, 32.0)
+	return clampf(maxf(elevation_scale_km, body_radius * 0.000010), elevation_scale_km, 32.0)
 
 var _noise: FastNoiseLite = null
 var _terrain_material: Material = null
@@ -475,35 +475,36 @@ static func sample_terrain_height_static(noise: FastNoiseLite, dir: Vector3, bod
 	# 1. Kıtalar ve Okyanus/Ova Havzaları (Continental Layer: -3.5 km ila +2.5 km)
 	var continental = noise.get_noise_3dv(dir * (1.6 * domain))
 
-	# Dağ Maskesi: Sadece kıtasal kabuk üzerinde yükselen heybetli sıradağlar
-	var mountain_mask = smoothstep(0.02, 0.45, continental)
+	# Dağ Maskesi: Kıtasal kütleler ve tektonik plaka sınırlarında yükselen heybetli sıradağlar
+	var mountain_mask = smoothstep(-0.12, 0.40, continental)
 
 	# Düzlükler ve Havzalar (Plains & Basins)
-	# Ova tabanı kıta sinyalinden türetilir; ayrı noise sorgusu gerekmez.
 	var plains = continental * 0.20
 
-	# 2. Sıradağlar, Sarp Sırtlar ve Kanyonlar (Mountain Layer: +3.0 km ila +9.0 km)
+	# 2. Sıradağlar, Sarp Sırtlar ve Kanyonlar (Mountain Layer: Ridged Multifractal)
 	var ridge_1 = 1.0 - absf(noise.get_noise_3dv(dir * (7.5 * domain)))
 	var ridge_2 = 1.0 - absf(noise.get_noise_3dv(dir * (16.0 * domain)))
-	var sharp_ridge = (pow(ridge_1, 2.2) * 0.75 + pow(ridge_2, 2.0) * 0.25) * mountain_mask
+	var sharp_ridge = (pow(ridge_1, 2.2) * 0.70 + pow(ridge_2, 2.0) * 0.30) * mountain_mask
 
-	# 3. Yerel Detaylar (Local-Detail Layer: Onlarca ve yüzlerce metre ölçeğinde tepecikler, kayalar)
+	# 3. Kanyon ve Okyanus Hendekleri (Rifts & Trenches)
+	var rift_raw = absf(noise.get_noise_3dv(dir * (4.5 * domain)))
+	var rift = (1.0 - smoothstep(0.0, 0.12, rift_raw)) * (1.0 - mountain_mask) * 0.25
+
+	# 4. Yerel Detaylar (Local-Detail Layer: Onlarca ve yüzlerce metre ölçeğinde tepecikler, kayalar)
 	var local_hills_raw = noise.get_noise_3dv(dir * (36.0 * domain))
 	var local_hills = local_hills_raw * 0.18
 	# Aynı yerel sinyalin mutlak değeri sırt maskesi olarak tekrar kullanılır.
 	var local_ridges = (1.0 - absf(local_hills_raw)) * 0.06
-	# Kilometre ölçekli geometri: eski en yüksek frekans büyük gezegenlerde
-	# 100+ km dalga boyunda kalıyor, LOD 10–11 daha çok üçgen üretse de düz
-	# görünüyordu. Bu iki katman yakın yüzeyde gerçek tepe ve kaya sırtı verir.
+	# Kilometre ölçekli geometri: yakın yüzeyde gerçek tepe ve kaya sırtı verir.
 	var local_micro_raw = noise.get_noise_3dv(dir * (2400.0 * domain))
 	var local_micro = local_micro_raw * 0.075
 	var ultra_ridge = (1.0 - absf(local_micro_raw)) * 0.022
 	var local_detail = (local_hills + local_ridges + local_micro + ultra_ridge)
 
-	# Aktif topoğrafya ölçeği (Varsayılan 12 km, debug sırasında 30-50 km)
+	# Aktif topoğrafya ölçeği (Varsayılan 16 km, gezegen yarıçapına orantılı)
 	var active_scale_km = get_elevation_scale_km(body_radius)
 
-	var normalized_elevation = (continental * 0.22) + (plains * 0.08) + (sharp_ridge * 0.60) + (local_detail * 0.10)
+	var normalized_elevation = (continental * 0.26) + (plains * 0.06) + (sharp_ridge * 0.62) - rift + (local_detail * 0.10)
 	var height_meters = normalized_elevation * (active_scale_km * 1000.0)
 
 	return height_meters / maxf(body_radius, 1000.0)
@@ -669,30 +670,36 @@ static func create_planet_terrain_material(body: CelestialBody = null) -> Shader
 	var body_name = body.name if body != null else ""
 
 	if "Kızıl Gezegen" in body_name:
-		sm.set_shader_parameter("color_ocean_deep", Color(0.18, 0.05, 0.02))
-		sm.set_shader_parameter("color_lowlands", Color(0.52, 0.18, 0.08))
-		sm.set_shader_parameter("color_midlands", Color(0.75, 0.35, 0.16))
-		sm.set_shader_parameter("color_highlands", Color(0.92, 0.65, 0.45))
-		sm.set_shader_parameter("color_cliff", Color(0.28, 0.10, 0.05))
+		sm.set_shader_parameter("color_ocean_deep", Color(0.24, 0.08, 0.04))
+		sm.set_shader_parameter("color_lowlands", Color(0.62, 0.25, 0.12))
+		sm.set_shader_parameter("color_midlands", Color(0.82, 0.44, 0.22))
+		sm.set_shader_parameter("color_highlands", Color(0.96, 0.74, 0.58))
+		sm.set_shader_parameter("color_cliff", Color(0.38, 0.14, 0.08))
 	elif "Buz Dünyası" in body_name:
-		sm.set_shader_parameter("color_ocean_deep", Color(0.12, 0.25, 0.45))
-		sm.set_shader_parameter("color_lowlands", Color(0.45, 0.65, 0.85))
-		sm.set_shader_parameter("color_midlands", Color(0.75, 0.88, 0.96))
-		sm.set_shader_parameter("color_highlands", Color(0.98, 0.99, 1.00))
-		sm.set_shader_parameter("color_cliff", Color(0.20, 0.32, 0.50))
+		sm.set_shader_parameter("color_ocean_deep", Color(0.10, 0.24, 0.48))
+		sm.set_shader_parameter("color_lowlands", Color(0.48, 0.68, 0.88))
+		sm.set_shader_parameter("color_midlands", Color(0.78, 0.90, 0.98))
+		sm.set_shader_parameter("color_highlands", Color(1.00, 1.00, 1.00))
+		sm.set_shader_parameter("color_cliff", Color(0.24, 0.36, 0.52))
 	elif "Okyanus Dünyası" in body_name or "Egzotik Yaşam" in body_name:
-		sm.set_shader_parameter("color_ocean_deep", Color(0.02, 0.08, 0.28))
-		sm.set_shader_parameter("color_lowlands", Color(0.18, 0.45, 0.22))
-		sm.set_shader_parameter("color_midlands", Color(0.45, 0.55, 0.28))
-		sm.set_shader_parameter("color_highlands", Color(0.85, 0.88, 0.92))
-		sm.set_shader_parameter("color_cliff", Color(0.22, 0.20, 0.18))
+		sm.set_shader_parameter("color_ocean_deep", Color(0.01, 0.07, 0.28))
+		sm.set_shader_parameter("color_lowlands", Color(0.14, 0.46, 0.20))
+		sm.set_shader_parameter("color_midlands", Color(0.44, 0.58, 0.26))
+		sm.set_shader_parameter("color_highlands", Color(0.86, 0.90, 0.94))
+		sm.set_shader_parameter("color_cliff", Color(0.26, 0.22, 0.18))
+	elif "Sıcak Çöl" in body_name:
+		sm.set_shader_parameter("color_ocean_deep", Color(0.32, 0.18, 0.10))
+		sm.set_shader_parameter("color_lowlands", Color(0.66, 0.44, 0.26))
+		sm.set_shader_parameter("color_midlands", Color(0.88, 0.68, 0.46))
+		sm.set_shader_parameter("color_highlands", Color(0.98, 0.88, 0.74))
+		sm.set_shader_parameter("color_cliff", Color(0.44, 0.26, 0.15))
 	else:
-		# Standart karasal / çöl gezegeni
-		sm.set_shader_parameter("color_ocean_deep", base_col.darkened(0.6))
-		sm.set_shader_parameter("color_lowlands", base_col.darkened(0.2))
-		sm.set_shader_parameter("color_midlands", base_col)
-		sm.set_shader_parameter("color_highlands", base_col.lightened(0.55))
-		sm.set_shader_parameter("color_cliff", base_col.darkened(0.5))
+		# Standart karasal dünya (derin lacivert okyanuslar, zümrüt kıyılar, kayalık yaylalar, karlı granit zirveler)
+		sm.set_shader_parameter("color_ocean_deep", Color(0.03, 0.11, 0.24))
+		sm.set_shader_parameter("color_lowlands", Color(0.18, 0.38, 0.16))
+		sm.set_shader_parameter("color_midlands", Color(0.48, 0.42, 0.32))
+		sm.set_shader_parameter("color_highlands", Color(0.90, 0.92, 0.96))
+		sm.set_shader_parameter("color_cliff", Color(0.28, 0.22, 0.18))
 
 	var p_radius = body.real_radius if body != null else 3477200.0
 	var active_scale = get_elevation_scale_km(p_radius)

@@ -637,8 +637,8 @@ func update_hud(main_node: Node3D) -> void:
 	visor_overlay.queue_redraw()
 	
 	var cam = main_node.camera
-	var sc = main_node.spacecraft if main_node.get("spacecraft") != null else (cam.spacecraft if cam != null else null)
-	var current_speed = cam.current_speed if cam != null else 0.0
+	var sc = main_node.spacecraft if main_node.get("spacecraft") != null else (cam.get("spacecraft") if (cam != null and cam.get("spacecraft") != null) else null)
+	var current_speed = cam.get("current_speed") if (cam != null and cam.get("current_speed") != null) else 0.0
 	
 	# 1. Üst Navigasyon Barı
 	var active_star_name = main_node.active_star.name if main_node.active_star != null else "Bilinmeyen"
@@ -727,7 +727,8 @@ func update_hud(main_node: Node3D) -> void:
 		lbl_ship_speed_val.modulate = Color(0.3, 1.0, 0.6)
 	else:
 		lbl_ship_speed_val.text = _format_speed(actual_speed)
-		lbl_ship_throttle_val.text = _format_speed(current_speed)
+		var fly_speed_label = main_node.get("fly_speed_label")
+		lbl_ship_throttle_val.text = str(fly_speed_label) if fly_speed_label != null and str(fly_speed_label) != "" else _format_speed(current_speed)
 		if actual_speed > 0.5:
 			lbl_ship_speed_val.modulate = Color(0.3, 1.0, 0.6)
 		else:
@@ -955,6 +956,7 @@ func _update_lod_debug_card(main_node: Node3D) -> void:
 func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 	for child in action_bar.get_children():
 		child.queue_free()
+	var spacecraft_controls_enabled: bool = main_node.get("enable_spacecraft_mode") == null or main_node.get("enable_spacecraft_mode") == true
 		
 	if main_node.is_system_map_active:
 		_add_badge("[M] HARİTADAN ÇIK", Color(1.0, 0.6, 0.1))
@@ -991,12 +993,16 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		else:
 			_add_badge("[G] HİPER HIZLANDIR", Color(1.0, 0.2, 0.9))
 			_add_badge("[WASD] İPTAL ET", Color(1.0, 0.4, 0.3))
-		_add_badge("[F] KAMERA", Color(0.5, 0.8, 1.0))
+		if spacecraft_controls_enabled:
+			_add_badge("[F] KAMERA", Color(0.5, 0.8, 1.0))
 	elif main_node.get("is_landed") == true:
+		_add_badge("[WASD] YÜZEY UÇUŞU", Color(0.0, 0.85, 1.0))
+		_add_badge("[SPACE/CTRL] DİKEY İTİCİ", Color(0.2, 0.9, 0.9))
 		_add_badge("[G / L] YÖRÜNGEYE KALKIŞ", Color(0.1, 1.0, 0.5))
 		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
-			_add_badge("[E] KOLTUKTAN KALK", Color(0.0, 0.9, 1.0))
-		_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
+			_add_badge("[E] KOLTUKTAN KALK / EVA", Color(0.0, 0.9, 1.0))
+		if spacecraft_controls_enabled:
+			_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
 	else:
 		var near_planet_for_landing: bool = false
 		if main_node.get("active_system_bodies") != null:
@@ -1012,7 +1018,8 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
 			_add_badge("[E] KOLTUKTAN KALK", Color(0.0, 0.9, 1.0))
 		_add_badge("[WASD] UÇUŞ  [Q] ROLL", Color(0.0, 0.85, 1.0))
-		_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
+		if spacecraft_controls_enabled:
+			_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
 		_add_badge("[M] HARİTA", Color(1.0, 0.65, 0.1))
 	if show_lod_debug_card:
 		_add_badge("[B/V/Z] LOD DEBUG", Color(0.2, 1.0, 0.4))
@@ -1113,21 +1120,30 @@ func _format_speed(current_speed: float) -> String:
 # (Saniye, Dakika, Saat, Gün, Hafta, Ay, Yıl, Asır)
 # ─────────────────────────────────────────────────────────────────────────────
 static func format_time_duration(t: float) -> String:
+	if not is_finite(t):
+		return "Hesaplanamadı"
 	if t <= 0.0:
 		return "0 Saniye"
 		
-	const SEC_IN_CENTURY: float = 3155760000.0 # 1 Asır = 100 Julian Işık Yılı
-	const SEC_IN_YEAR: float    = 31557600.0   # 1 Yıl = 365.25 Gün
-	const SEC_IN_MONTH: float   = 2629800.0    # 1 Ay = 30.4375 Gün (365.25 / 12)
-	const SEC_IN_WEEK: float    = 604800.0     # 1 Hafta = 7 Gün
-	const SEC_IN_DAY: float     = 86400.0      # 1 Gün = 24 Saat
-	const SEC_IN_HOUR: float    = 3600.0       # 1 Saat = 60 Dakika
-	const SEC_IN_MINUTE: float  = 60.0         # 1 Dakika = 60 Saniye
+	const SEC_IN_BILLION_YEARS: float = 31557600000000000.0 # 1 Milyar Yıl
+	const SEC_IN_MILLION_YEARS: float = 31557600000000.0    # 1 Milyon Yıl
+	const SEC_IN_CENTURY: float       = 3155760000.0        # 1 Asır = 100 Julian Işık Yılı
+	const SEC_IN_YEAR: float          = 31557600.0          # 1 Yıl = 365.25 Gün
+	const SEC_IN_MONTH: float         = 2629800.0           # 1 Ay = 30.4375 Gün (365.25 / 12)
+	const SEC_IN_WEEK: float          = 604800.0            # 1 Hafta = 7 Gün
+	const SEC_IN_DAY: float           = 86400.0             # 1 Gün = 24 Saat
+	const SEC_IN_HOUR: float          = 3600.0              # 1 Saat = 60 Dakika
+	const SEC_IN_MINUTE: float        = 60.0                # 1 Dakika = 60 Saniye
 	
+	# 0. Kozmolojik Süreler (Milyar / Milyon Yıl) - Negatif Sayı Taşmalarını Önler
+	if t >= SEC_IN_BILLION_YEARS:
+		return "> 1 Milyar Yıl"
+	elif t >= SEC_IN_MILLION_YEARS:
+		return "%.1f Milyon Yıl" % (t / SEC_IN_MILLION_YEARS)
 	# 1. Asır (Centuries) - Derin galaktik mesafe (100+ Işık Yılı)
-	if t >= SEC_IN_CENTURY:
-		var centuries = int(t / SEC_IN_CENTURY)
-		var rem_years = int(fmod(t, SEC_IN_CENTURY) / SEC_IN_YEAR)
+	elif t >= SEC_IN_CENTURY:
+		var centuries = int(clampf(t / SEC_IN_CENTURY, 0.0, 999999.0))
+		var rem_years = int(clampf(fmod(t, SEC_IN_CENTURY) / SEC_IN_YEAR, 0.0, 99.0))
 		if rem_years > 0:
 			return "%d Asır %d Yıl" % [centuries, rem_years]
 		return "%d Asır" % centuries
@@ -1191,11 +1207,15 @@ static func format_time_duration(t: float) -> String:
 		return "< 0.001 Saniye"
 
 static func format_light_time(meters: float) -> String:
+	if not is_finite(meters):
+		return "Hesaplanamadı"
 	if meters <= 0.0:
 		return "0 Saniye"
 	return format_time_duration(meters / LIGHT_SPEED)
 
 static func format_travel_time(distance_meters: float, speed_mps: float) -> String:
+	if not is_finite(distance_meters) or not is_finite(speed_mps):
+		return "Hesaplanamadı"
 	if speed_mps <= 0.5:
 		return "Durağan (Hız Yok)"
 	if distance_meters <= 1.0:
@@ -1219,7 +1239,9 @@ func _format_metric_size(meters: float) -> String:
 	else:
 		return "%.0f m" % meters
 
-func _format_distance(meters: float) -> String:
+static func _format_distance(meters: float) -> String:
+	if not is_finite(meters):
+		return "Hesaplanamadı"
 	if meters <= 0.0:
 		return "0 m"
 		
@@ -1437,7 +1459,11 @@ func _update_starfield_card(main_node: Node3D) -> void:
 				starfield_card.visible = false
 				return
 
-	if main_node.targeted_star_data != null:
+	if main_node.get("selected_extragalactic_galaxy") != null:
+		var info = _get_galaxy_survey_info(main_node.selected_extragalactic_galaxy, main_node)
+		_apply_survey_info_to_card(info)
+		starfield_card.visible = true
+	elif main_node.targeted_star_data != null:
 		var info = _get_stardata_survey_info(main_node.targeted_star_data, main_node)
 		_apply_survey_info_to_card(info)
 		starfield_card.visible = true
@@ -1648,30 +1674,90 @@ func _get_stardata_survey_info(star_data, main_node: Node3D) -> Dictionary:
 	info["name"] = star_data.name.to_upper()
 	info["system"] = "GALAKTİK SEKTÖR [%d,%d,%d]" % [star_data.sector_coord.x, star_data.sector_coord.y, star_data.sector_coord.z]
 	info["survey_pct"] = 100
-	var gal_pos = main_node.get_player_galactic_position()
-	var star_pos = Vector3(star_data.stellar_x, star_data.stellar_y, star_data.stellar_z)
-	var dist = (star_pos - gal_pos).length()
+	var gal_pos_m: Vector3 = main_node.get_player_galactic_position()
+	# Metre koordinatları galaksi ölçeğinde ~1e20 değerine ulaşır. Bunların
+	# Vector3.length() karesi tek duyarlıklı bileşenlerde INF üretebilir.
+	# Önce ışık yılına küçült, güvenli uzunluğu hesapla, sonra metreye dön.
+	var player_pos_ly := gal_pos_m / LIGHT_YEAR
+	var star_pos_ly := Vector3(
+		star_data.stellar_x / LIGHT_YEAR,
+		star_data.stellar_y / LIGHT_YEAR,
+		star_data.stellar_z / LIGHT_YEAR
+	)
+	var dist: float = (star_pos_ly - player_pos_ly).length() * LIGHT_YEAR
 	var current_spd = 0.0
-	if main_node.camera != null:
-		current_spd = float(main_node.camera.current_speed)
+	if main_node.camera != null and main_node.camera.get("current_speed") != null:
+		current_spd = float(main_node.camera.get("current_speed"))
 	if main_node.get("flight_speed_mps") != null and float(main_node.flight_speed_mps) > 0.1:
 		current_spd = float(main_node.flight_speed_mps)
 	info["dist"] = _format_distance(dist)
 	info["light_time"] = _format_light_time(dist)
 	info["travel_time"] = format_travel_time(dist, current_spd)
 	info["radius"] = _format_metric_size(star_data.radius)
-	info["type"] = "Galaktik Yıldız (%s)" % star_data.spectral_type
-	info["gravity"] = "25.0+ G (Kütle Çekim)"
-	info["temp"] = "Spektral Sınıf: %s" % star_data.spectral_type
-	info["atmo"] = "Yıldız Koronası"
-	info["mag"] = "Devasa Galaktik Manyetosfer"
-	info["water"] = "Yok (Nükleer Füzyon)"
-	info["biome"] = "Plazma Çekirdeği & Korona"
+	if star_data.spectral_type.contains("SMBH") or star_data.spectral_type.contains("Kara Delik"):
+		info["type"] = "Süper Kütleli Kara Delik (SMBH)"
+		info["gravity"] = "Aşırı Tekillik (Olay Ufku)"
+		info["temp"] = "Hawking (~0 K) | Disk: >10⁷ K"
+		info["atmo"] = "Relativistik Yığılma Diski & Plazma Jeti"
+		info["mag"] = "Devasa Relativistik Manyetosfer"
+		info["water"] = "Yok (Spagettileşme)"
+		info["biome"] = "Schwarzschild Olay Ufku & Ergoküre"
+		info["resources"] = [
+			{"sym": "DM", "name": "Karanlık Madde", "col": Color(0.7, 0.3, 1.0)},
+			{"sym": "γ", "name": "Gama Işını", "col": Color(0.2, 1.0, 0.8)},
+			{"sym": "Pl", "name": "Aşırı Sıcak Plazma", "col": Color(1.0, 0.45, 0.2)},
+			{"sym": "G-W", "name": "Yerçekim Dalgası", "col": Color(0.9, 0.2, 0.5)}
+		]
+	else:
+		info["type"] = "Galaktik Yıldız (%s)" % star_data.spectral_type
+		info["gravity"] = "25.0+ G (Kütle Çekim)"
+		info["temp"] = "Spektral Sınıf: %s" % star_data.spectral_type
+		info["atmo"] = "Yıldız Koronası"
+		info["mag"] = "Devasa Galaktik Manyetosfer"
+		info["water"] = "Yok (Nükleer Füzyon)"
+		info["biome"] = "Plazma Çekirdeği & Korona"
+		info["resources"] = [
+			{"sym": "H", "name": "Hidrojen", "col": Color(0.35, 0.75, 1.0)},
+			{"sym": "He-3", "name": "Helyum-3", "col": Color(1.0, 0.85, 0.2)},
+			{"sym": "Pl", "name": "Plazma", "col": Color(1.0, 0.4, 0.8)},
+			{"sym": "Fe", "name": "Ağır Element", "col": Color(0.9, 0.5, 0.2)}
+		]
+	return info
+
+func _get_galaxy_survey_info(galaxy, main_node: Node3D) -> Dictionary:
+	var info = {}
+	var name_str = galaxy.custom_name if galaxy.custom_name != "" else galaxy.designation
+	info["name"] = name_str.to_upper()
+	info["system"] = "KOZMOLOJİK DERİN UZAY"
+	info["survey_pct"] = 100
+	
+	var cam = main_node.camera
+	var cam_pos_ly: Vector3 = (cam.global_position + main_node.galaxy_origin_ly) if (cam != null and main_node.get("galaxy_origin_ly") != null) else Vector3.ZERO
+	var dist_ly: float = (galaxy.position_ly - cam_pos_ly).length()
+	var dist_m: float = dist_ly * LIGHT_YEAR
+	
+	var current_spd = 0.0
+	if cam != null and cam.get("current_speed") != null:
+		current_spd = float(cam.get("current_speed"))
+	if main_node.get("flight_speed_mps") != null and float(main_node.flight_speed_mps) > 0.1:
+		current_spd = float(main_node.flight_speed_mps)
+		
+	info["dist"] = _format_distance(dist_m)
+	info["light_time"] = _format_light_time(dist_m)
+	info["travel_time"] = format_travel_time(dist_m, current_spd)
+	info["radius"] = "Çap: %.0f Bin LY" % (galaxy.diameter_ly / 1000.0)
+	info["type"] = galaxy.hubble_type
+	info["gravity"] = "SMBH: %.1f Milyon M☉" % (galaxy.black_hole_mass_solar / 1.0e6)
+	info["temp"] = "Yaş: %.1f Milyar Yıl" % galaxy.age_gyr
+	info["atmo"] = "SFR: %.1f M☉/Yıl (Gaz)" % galaxy.star_formation_rate
+	info["mag"] = "Galaktik Manyetik Alan"
+	info["water"] = "Yıldız Sayısı: ~%.0f Milyar" % (galaxy.total_real_stars / 1.0e9)
+	info["biome"] = "Kütle: %.2f × 10¹¹ M☉" % (galaxy.total_mass_solar / 1.0e11)
 	info["resources"] = [
-		{"sym": "H", "name": "Hidrojen", "col": Color(0.35, 0.75, 1.0)},
-		{"sym": "He-3", "name": "Helyum-3", "col": Color(1.0, 0.85, 0.2)},
-		{"sym": "Pl", "name": "Plazma", "col": Color(1.0, 0.4, 0.8)},
-		{"sym": "Fe", "name": "Ağır Element", "col": Color(0.9, 0.5, 0.2)}
+		{"sym": "DM", "name": "Karanlık Madde Halosu", "col": Color(0.75, 0.35, 1.0)},
+		{"sym": "H-I", "name": "Nötr Hidrojen Gazı", "col": Color(0.3, 0.8, 1.0)},
+		{"sym": "Pop-I", "name": "Genç Yıldız Kümeleri", "col": Color(0.2, 0.95, 0.6)},
+		{"sym": "Pop-II", "name": "Yaşlı Küresel Kümeler", "col": Color(1.0, 0.85, 0.3)}
 	]
 	return info
 

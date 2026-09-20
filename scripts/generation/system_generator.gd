@@ -273,27 +273,8 @@ static func generate_star(main_node: Node3D, star_index: int, star_local_pos: Ve
 
 # Aşama 4 & 7: StarData kaydını aktif sistemin CelestialBody yıldızına dönüştürür
 static func instantiate_star_from_data(_main_node: Node3D, star_data) -> CelestialBody:
-	var star = CelestialBody.new()
-	star.name = star_data.name + " (" + star_data.spectral_type + ")"
-	star.type = "STAR"
-	star.real_radius = star_data.radius
-	star.real_position = Vector3.ZERO
-	star.local_position = Vector3.ZERO
-	star.rotation_speed = 0.08
-	star.rotation_angle = 0.0
-	star.axial_tilt = 0.0
-	star.stellar_x = star_data.stellar_x
-	star.stellar_y = star_data.stellar_y
-	star.stellar_z = star_data.stellar_z
-	star.sys_seed = star_data.system_seed
-	star.base_color = star_data.base_color
-	star.light_color = star_data.light_color
-	star.light_energy = star_data.light_energy
-	star.luminosity = star_data.luminosity
-	star.spectral_type = star_data.spectral_type
-	star.system_type = star_data.system_type
-	star.max_visibility_distance = INF
-	star.system_diameter = 2000000000000.0 # ~13.3 AU
+	var star := Star.new()
+	star.apply_star_data(star_data)
 	return star
 
 # Aşama 7: Prosedürel Gezegen Çeşitliliği ve Bağımsız Deterministik Sistem Üretimi
@@ -369,9 +350,9 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 		if p_inclination != 0.0:
 			planet_local_pos = planet_local_pos.rotated(Vector3.FORWARD, p_inclination)
 			
-		var planet = CelestialBody.new()
+		var planet := Planet.new()
 		planet.name = "P_%d_%d (%s)" % [star.star_index, i + 1, p_config["type_name"]]
-		planet.type = "PLANET"
+		planet.terrain_seed = system_seed + (i + 1) * 104729
 		planet.planet_type = p_key
 		planet.real_radius = planet_radius
 		planet.real_position = planet_local_pos
@@ -442,9 +423,9 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 			if m_inclination != 0.0:
 				moon_local_pos = moon_local_pos.rotated(Vector3.FORWARD, m_inclination)
 				
-			var moon = CelestialBody.new()
+			var moon := Moon.new()
 			moon.name = "P_%d_%d_%d" % [star.star_index, i + 1, j + 1]
-			moon.type = "MOON"
+			moon.terrain_seed = system_seed + (i + 1) * 104729 + (j + 1) * 13007
 			moon.real_radius = moon_radius
 			moon.real_position = moon_local_pos
 			moon.local_position = moon_local_pos
@@ -575,7 +556,12 @@ static func run_diversity_benchmark(count: int = 100, base_seed: int = 424242) -
 
 
 static func create_celestial_body(main_node: Node3D, b_name: String, b_type: String, radius: float, initial_pos: Vector3) -> CelestialBody:
-	var body = CelestialBody.new()
+	var body: CelestialBody
+	match b_type:
+		"STAR": body = Star.new()
+		"PLANET": body = Planet.new()
+		"MOON": body = Moon.new()
+		_: body = CelestialBody.new()
 	body.name = b_name
 	body.type = b_type
 	body.real_radius = radius
@@ -897,6 +883,7 @@ static func generate_body_textures(main_node: Node3D, body: CelestialBody) -> vo
 	var body_seed = (body.name + str(main_node.current_seed)).hash()
 	var noise = FastNoiseLite.new()
 	noise.seed = body_seed
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	
 	var grad = Gradient.new()
 	grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_LINEAR
@@ -919,9 +906,9 @@ static func generate_body_textures(main_node: Node3D, body: CelestialBody) -> vo
 			grad.offsets = [0.0, 0.5, 1.0]
 			grad.colors = [Color(0.5, 0.1, 0.0), Color(0.9, 0.5, 0.1), Color(1.0, 0.9, 0.6)]
 			
-	elif body.type == "PLANET":
-		noise.frequency = 0.02
-		noise.fractal_octaves = 4
+	elif body.type == "PLANET" or body.type == "MOON":
+		noise.frequency = 0.015
+		noise.fractal_octaves = 5
 		
 		if "Sıcak Çöl" in body.name:
 			grad.offsets = [0.0, 0.4, 0.8, 1.0]

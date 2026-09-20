@@ -1,0 +1,26 @@
+[gd_scene format=3 uid="uid://bevnynckc4503"]
+
+[ext_resource type="Script" uid="uid://c7undlvkm71m3" path="res://scripts/main_galaxy.gd" id="1_test"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
+
+[node name="MainGalaxy" type="Node3D" unique_id=123159523]
+script = ExtResource("1_test")
+
+[node name="HUD" parent="." unique_id=908903675 instance=ExtResource("4_hud")]
+
+[node name="Control" type="Control" parent="." unique_id=1373058123]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="RichTextLabel" type="RichTextLabel" parent="Control" unique_id=931210647]
+visible = false
+layout_mode = 0
+offset_right = 1920.0
+offset_bottom = 1080.0
+mouse_filter = 2
+bbcode_enabled = true

@@ -12,7 +12,7 @@ func capture(name: String) -> void:
 
 func run() -> void:
 	Engine.max_fps = 60
-	var scene = load("res://scenes/main.tscn").instantiate()
+	var scene = load("res://scenes/main_star.tscn").instantiate()
 	scene.seed_value = 424243
 	root.add_child(scene)
 	scene.set_process_input(false)

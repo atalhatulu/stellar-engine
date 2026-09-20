@@ -11,7 +11,7 @@ func _initialize() -> void:
 	call_deferred("run")
 
 func run() -> void:
-	var scene = load("res://scenes/main.tscn").instantiate()
+	var scene = load("res://scenes/main_star.tscn").instantiate()
 	scene.seed_value = 424243
 	scene.enable_mid_field = false
 	scene.enable_deep_field = false

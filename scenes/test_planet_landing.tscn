@@ -1,9 +1,9 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene format=3 uid="uid://bf1nx0ah2ejjm"]
 
-[ext_resource type="Script" path="res://scripts/tests/planet_landing_lab.gd" id="1_lab"]
-[ext_resource type="Script" path="res://scripts/core/free_look_camera.gd" id="2_camera"]
-[ext_resource type="FontFile" path="res://assets/fonts/FiraSans-Medium.ttf" id="3_font"]
-[ext_resource type="FontFile" path="res://assets/fonts/DejaVuSansMono-Bold.ttf" id="4_mono"]
+[ext_resource type="Script" uid="uid://cu5llwoxq8me7" path="res://scripts/tests/planet_landing_lab.gd" id="1_lab"]
+[ext_resource type="Script" uid="uid://dbg4fb07r0281" path="res://scripts/core/free_look_camera.gd" id="2_camera"]
+[ext_resource type="FontFile" uid="uid://d2mwrtkyu65b2" path="res://assets/fonts/FiraSans-Medium.ttf" id="3_font"]
+[ext_resource type="FontFile" uid="uid://cvnn48hnjwows" path="res://assets/fonts/DejaVuSansMono-Bold.ttf" id="4_mono"]
 
 [sub_resource type="Environment" id="Environment_lab"]
 background_mode = 1
@@ -39,33 +39,33 @@ corner_radius_top_right = 2
 corner_radius_bottom_right = 2
 corner_radius_bottom_left = 2
 
-[node name="PlanetLandingLab" type="Node3D"]
+[node name="PlanetLandingLab" type="Node3D" unique_id=576065327]
 script = ExtResource("1_lab")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1920435612]
 environment = SubResource("Environment_lab")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-38, -28, 0)
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=552160653]
+transform = Transform3D(0.88294756, 0.2890356, -0.36994866, 0, 0.7880108, 0.6156615, 0.46947157, -0.5435968, 0.6957722, 0, 0, 0)
 light_color = Color(1, 0.88, 0.72, 1)
 light_energy = 2.2
 shadow_enabled = true
 
-[node name="FreeLookCamera" type="Node3D" parent="."]
+[node name="FreeLookCamera" type="Node3D" parent="." unique_id=73413886]
 script = ExtResource("2_camera")
 base_speed = 10000.0
 min_speed = 50.0
 max_speed = 250000.0
 
-[node name="Camera3D" type="Camera3D" parent="FreeLookCamera"]
+[node name="Camera3D" type="Camera3D" parent="FreeLookCamera" unique_id=1986734078]
 current = true
+fov = 110.0
 near = 1.0
 far = 3000000.0
-fov = 68.0
 
-[node name="UILayer" type="CanvasLayer" parent="."]
+[node name="UILayer" type="CanvasLayer" parent="." unique_id=2069140179]
 
-[node name="Title" type="Label" parent="UILayer"]
+[node name="Title" type="Label" parent="UILayer" unique_id=834447896]
 offset_left = 28.0
 offset_top = 24.0
 offset_right = 680.0
@@ -75,7 +75,7 @@ theme_override_fonts/font = ExtResource("3_font")
 theme_override_font_sizes/font_size = 22
 text = "PLANET LANDING LAB"
 
-[node name="Help" type="Label" parent="UILayer"]
+[node name="Help" type="Label" parent="UILayer" unique_id=416749294]
 offset_left = 30.0
 offset_top = 58.0
 offset_right = 1050.0
@@ -85,36 +85,43 @@ theme_override_fonts/font = ExtResource("3_font")
 theme_override_font_sizes/font_size = 13
 text = "[L] İniş  [R] Sıfırla  [1/2/3] 6R–3R–1.02R  [4] Yüzey/LOD11  [V] LOD renkleri  [B] Sınırlar"
 
-[node name="StatusPanel" type="PanelContainer" parent="UILayer"]
+[node name="StatusPanel" type="PanelContainer" parent="UILayer" unique_id=28220692]
 offset_left = 28.0
 offset_top = 104.0
 offset_right = 390.0
 offset_bottom = 284.0
 theme_override_styles/panel = SubResource("Style_panel")
 
-[node name="Margin" type="MarginContainer" parent="UILayer/StatusPanel"]
+[node name="Margin" type="MarginContainer" parent="UILayer/StatusPanel" unique_id=1501014545]
+layout_mode = 2
 theme_override_constants/margin_left = 16
 theme_override_constants/margin_top = 13
 theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 13
 
-[node name="VBox" type="VBoxContainer" parent="UILayer/StatusPanel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="UILayer/StatusPanel/Margin" unique_id=1271956299]
+layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Status" type="Label" parent="UILayer/StatusPanel/Margin/VBox"]
+[node name="Status" type="Label" parent="UILayer/StatusPanel/Margin/VBox" unique_id=731422566]
+layout_mode = 2
 theme_override_colors/font_color = Color(0.22, 0.9, 0.85, 1)
 theme_override_fonts/font = ExtResource("3_font")
 theme_override_font_sizes/font_size = 14
 text = "YÖRÜNGE YAKLAŞMASI"
 
-[node name="Telemetry" type="Label" parent="UILayer/StatusPanel/Margin/VBox"]
+[node name="Telemetry" type="Label" parent="UILayer/StatusPanel/Margin/VBox" unique_id=840972912]
+layout_mode = 2
 theme_override_colors/font_color = Color(0.84, 0.93, 1, 1)
 theme_override_fonts/font = ExtResource("4_mono")
 theme_override_font_sizes/font_size = 13
-text = "İRTİFA\nLOD\nFPS"
+text = "İRTİFA
+LOD
+FPS"
 
-[node name="Progress" type="ProgressBar" parent="UILayer/StatusPanel/Margin/VBox"]
+[node name="Progress" type="ProgressBar" parent="UILayer/StatusPanel/Margin/VBox" unique_id=1137813677]
 custom_minimum_size = Vector2(0, 7)
+layout_mode = 2
 theme_override_styles/background = SubResource("Style_progress_bg")
 theme_override_styles/fill = SubResource("Style_progress_fill")
 show_percentage = false

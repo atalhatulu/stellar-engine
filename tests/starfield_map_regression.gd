@@ -12,7 +12,7 @@ func _initialize() -> void:
 
 func run() -> void:
 	print("--- STARFIELD HARİTA VE CİSİM SEÇİMİ REGRESYON TESTİ BAŞLATILIYOR ---")
-	var scene = load("res://scenes/main.tscn").instantiate()
+	var scene = load("res://scenes/main_star.tscn").instantiate()
 	scene.seed_value = 12345
 	scene.enable_mid_field = false
 	scene.enable_deep_field = false

@@ -4,6 +4,7 @@ extends Node3D
 @export var mouse_sensitivity: float = 0.002
 @export_range(1.0, 30.0, 0.5) var camera_position_response: float = 10.0
 @export_range(1.0, 30.0, 0.5) var camera_rotation_response: float = 12.0
+@export var camera_scale: float = 1.0
 var _follow_position := Vector3.ZERO
 var _follow_rotation := Quaternion.IDENTITY
 var _follow_initialized := false
@@ -290,9 +291,9 @@ func _update_camera_view(instant: bool = false, delta: float = 0.016) -> void:
 				var sway_x: float = clampf(-mouse_turn_speed.x * 0.006, -0.4, 0.4)
 				var sway_y: float = clampf(mouse_turn_speed.y * 0.005, -0.3, 0.3)
 				# Hızlandıkça kamera yumuşakça uzaklaşır
-				var cam_dist: float = third_person_distance + t_int * 7.5 + w_int * 14.0
-				var cam_height: float = 2.5 + (third_person_distance - MIN_THIRD_PERSON_DIST) * 0.18 + (t_int * 2.0) + sway_y
-				target_local_pos = Vector3(sway_x, cam_height, cam_dist)
+				var cam_dist: float = (third_person_distance + t_int * 7.5 + w_int * 14.0) * camera_scale
+				var cam_height: float = (2.5 + (third_person_distance - MIN_THIRD_PERSON_DIST) * 0.18 + (t_int * 2.0) + sway_y) * camera_scale
+				target_local_pos = Vector3(sway_x * camera_scale, cam_height, cam_dist)
 				
 				# Hızlandıkça uzay-zaman eğrilmesi hissi (organik salınım ve roll/pitch bükülmesi)
 				var warp_roll_deg: float = sin(t_phase * 1.8) * (t_int * 2.8 + w_int * 3.5)
@@ -315,7 +316,7 @@ func _update_camera_view(instant: bool = false, delta: float = 0.016) -> void:
 					head_basis = Basis.from_euler(Vector3(rot_x + shake_pitch, rot_y, shake_roll))
 				target_world_basis = spacecraft.global_basis * head_basis
 			Spacecraft.CameraViewMode.EVA:
-				target_local_pos = Vector3(0, 0.6, 4.0) if eva_third_person else Vector3.ZERO
+				target_local_pos = (Vector3(0, 0.6, 4.0) if eva_third_person else Vector3.ZERO) * camera_scale
 				target_world_basis = global_basis.orthonormalized()
 
 	var target_world_pos := to_global(target_local_pos)
@@ -328,10 +329,15 @@ func _update_camera_view(instant: bool = false, delta: float = 0.016) -> void:
 		_follow_rotation = target_rotation
 		_follow_initialized = true
 	else:
-		_follow_position = _follow_position.lerp(target_world_pos, 1.0 - exp(-camera_position_response * frame_delta))
-		# Persist the rendered WORLD orientation. Parent rotation must not bypass
-		# camera lag, and Euler wrap at +/-180 degrees must never cause a spin.
-		_follow_rotation = _follow_rotation.slerp(target_rotation, 1.0 - exp(-camera_rotation_response * frame_delta)).normalized()
+		if spacecraft != null and spacecraft.current_view_mode == Spacecraft.CameraViewMode.INTERIOR_FPS and not spacecraft.is_seated_in_cockpit:
+			_follow_position = _follow_position.lerp(target_world_pos, 1.0 - exp(-12.0 * frame_delta))
+			_follow_rotation = target_rotation
+		elif spacecraft != null and spacecraft.current_view_mode == Spacecraft.CameraViewMode.INTERIOR_FPS:
+			_follow_position = target_world_pos
+			_follow_rotation = target_rotation
+		else:
+			_follow_position = target_world_pos
+			_follow_rotation = _follow_rotation.slerp(target_rotation, 1.0 - exp(-camera_rotation_response * frame_delta)).normalized()
 	camera_node.global_transform = Transform3D(Basis(_follow_rotation), _follow_position)
 
 func set_speed_to_match_body(radius: float) -> void:
