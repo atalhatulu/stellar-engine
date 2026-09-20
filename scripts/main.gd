@@ -1,6 +1,5 @@
 extends Node3D
 
-const PlanetLODManager = preload("res://scripts/rendering/planet_lod_manager.gd")
 const PlanetChunkSphere = preload("res://scripts/rendering/planet_chunk_sphere.gd")
 const MidFieldStarRenderer = preload("res://scripts/rendering/mid_field_star_renderer.gd")
 const DeepFieldStarRenderer = preload("res://scripts/rendering/deep_field_star_renderer.gd")
@@ -69,8 +68,7 @@ var map_pre_speed_index: int = 3
 var is_landed: bool = false
 var landed_body: CelestialBody = null
 var landed_local_pos: Vector3 = Vector3.ZERO
-var landed_lod_manager = null
-var sphere_chunk_manager = null  # Spherical chunk LOD for orbit/approach view
+var sphere_chunk_manager: PlanetChunkSphere = null  # 360° Kesintisiz Küresel Gezegen Yüzeyi ve LOD Yöneticisi
 var _chunk_target: CelestialBody = null  # Current chunk target planet
 var landed_walk_offset: Vector2 = Vector2.ZERO
 var landed_vertical_offset: float = 0.0     # Zıplama/yükseklik için
@@ -183,8 +181,6 @@ func _input(event):
 		elif event.keycode == KEY_V:
 			# V tuşu: Hem yüzeyde (LOD 0-4) hem uzay yaklaşmasında (Level 0-4) anlık renk modunu açıp kapatır
 			debug_lod_colors_active = !debug_lod_colors_active
-			if is_instance_valid(landed_lod_manager) and landed_lod_manager.has_method("toggle_debug_colors"):
-				landed_lod_manager.toggle_debug_colors()
 			if is_instance_valid(sphere_chunk_manager) and sphere_chunk_manager.has_method("toggle_debug_colors"):
 				sphere_chunk_manager.toggle_debug_colors()
 			print("LOD DEBUG RENK MODU (V): ", "AÇIK (Yeşil/Mavi/Sarı/Turuncu/Kırmızı)" if debug_lod_colors_active else "KAPALI")
@@ -393,9 +389,6 @@ func _generate_universe(p_seed: int) -> void:
 	landed_walk_offset = Vector2.ZERO
 	landed_vertical_offset = 0.0
 	landed_vertical_velocity = 0.0
-	if is_instance_valid(landed_lod_manager):
-		landed_lod_manager.queue_free()
-	landed_lod_manager = null
 	is_eva_active = false
 	is_near_ship_airlock = false
 	eva_offset = Vector3.ZERO
@@ -588,12 +581,6 @@ func _update_active_system_bodies() -> void:
 		elif b.type == "MOON":
 			total_moons_count += 1
 
-	# İlk gezegeni varsayılan hedef yap (Oyuncu Ctrl+T ile hemen ışınlanabilsin veya G ile uçabilsin)
-	if active_system_bodies.size() > 0:
-		for i in range(universe.size()):
-			if universe[i].type == "PLANET":
-				current_target_index = i
-				break
 
 # Kare başına en fazla 1 gök cisminin dokusunu üreterek sistem yaklaşma spike'larını sıfırlar
 func _process_body_texture_queue() -> void:
@@ -1565,23 +1552,14 @@ func _process(delta):
 		virtual_player_position = body_abs_pos + current_relative_pos
 		player_velocity = Vector3.ZERO
 		
-		# LOD manager'ın basis'ini güncelle (gezegen dönüşüyle uyumlu)
-		if is_instance_valid(landed_lod_manager) and landed_lod_manager.is_active():
-			landed_lod_manager.set_tangent_basis(local_up, local_x, local_z)
-			landed_lod_manager.set_eye_height(EYE_HEIGHT + landed_vertical_offset)
-			# Yüksek irtifada (uçuş modu / irtifa > 2500m) yerel düzlem gizlenir; tüm gezegen küresel chunk'larla görünür
-			var is_flying_high = landed_vertical_offset > 2500.0
-			landed_lod_manager.visible = not is_flying_high
-			if not is_flying_high:
-				var cam_fwd = -camera.global_transform.basis.z if camera != null else Vector3.FORWARD
-				landed_lod_manager.update(landed_walk_offset.x, landed_walk_offset.y, cam_fwd)
-
 		# Park edilen Keşif Korvetini gezegen yüzeyindeki iniş noktasında sabit tut
 		var current_sc = spacecraft if spacecraft != null else (camera.spacecraft if camera != null else null)
 		if current_sc != null:
 			var height_at_landing = 0.0
 			if noise != null:
-				height_at_landing = PlanetLODManager.sample_surface_height(0.0, 0.0, noise, 0.002, 3800.0, 0)
+				var landing_norm = base_landing_pos.normalized() if base_landing_pos.length_squared() > 0.01 else local_up
+				var h_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, landing_norm, planet_r)
+				height_at_landing = planet_r * h_ratio
 			var rel_x = -landed_walk_offset.x
 			var rel_z = -landed_walk_offset.y
 			var rel_y = (height_at_landing + 0.45) - (visual_ground_h + EYE_HEIGHT + landed_vertical_offset)
@@ -1708,12 +1686,12 @@ func _process(delta):
 				if autopilot_target_body.noise_albedo != null and autopilot_target_body.noise_albedo.noise != null:
 					landing_noise = autopilot_target_body.noise_albedo.noise
 				
-				var height_at_landing = 0.0
-				if landing_noise != null:
-					height_at_landing = PlanetLODManager.sample_surface_height(0.0, 0.0, landing_noise, 0.002, 3800.0, 0)
-					
 				var approach_vec = autopilot_relative_start_pos
 				var landing_dir = approach_vec.normalized() if approach_vec.length_squared() > 0.01 else Vector3.UP
+				var height_at_landing = 0.0
+				if landing_noise != null:
+					var h_ratio = PlanetChunkSphere.sample_terrain_height_static(landing_noise, landing_dir, autopilot_target_body.real_radius)
+					height_at_landing = autopilot_target_body.real_radius * h_ratio
 				var landing_offset = landing_dir * (autopilot_target_body.real_radius + EYE_HEIGHT + height_at_landing)
 				flight_speed_mps = autopilot_relative_start_pos.distance_to(landing_offset) * ease_rate
 				var current_rel_pos = lerp(autopilot_relative_start_pos, landing_offset, ease_t)
@@ -2344,8 +2322,6 @@ func _process(delta):
 func _update_chunk_borders() -> void:
 	if is_instance_valid(sphere_chunk_manager):
 		sphere_chunk_manager.set_borders_visible(show_chunk_borders)
-	if is_instance_valid(landed_lod_manager) and landed_lod_manager.has_method("set_borders_visible"):
-		landed_lod_manager.set_borders_visible(show_chunk_borders)
 
 
 # ── SPHERICAL CHUNK LOD (orbit/yaklaşma) ─────────────────────────────────
@@ -2421,8 +2397,11 @@ func _flv_update_flyover_lod() -> void:
 	sphere_chunk_manager.update(Vector3.ZERO, mesh.global_position, visual_radius,
 		virtual_player_position, body_abs_pos, cam_fwd)
 
-	# Pürüzsüz bowling topu küresi gizlenir, gerçek 3D dağlı ve vadili küresel chunk sistemi gösterilir
-	target.visual_mesh.visible = false
+	# Yeni küresel chunk sistemi hazır olmadan eski küre ASLA gizlenmez (boşluk kalmasını önler)
+	if sphere_chunk_manager.is_ready():
+		target.visual_mesh.visible = false
+	else:
+		target.visual_mesh.visible = true
 
 
 func _flv_clear_chunks() -> void:
@@ -3149,8 +3128,12 @@ func _execute_landing(target: CelestialBody) -> void:
 		
 	var body_abs_pos = landed_body.get_absolute_position(active_star)
 	var approach_vec = virtual_player_position - body_abs_pos
-	# Gezegen merkezini baz alan gerçek radyal yaklaşma ve iniş yönü (her enlem ve kutup serbest)
-	var landing_dir = approach_vec.normalized() if approach_vec.length_squared() > 0.01 else Vector3.UP
+	var horiz = Vector2(approach_vec.x, approach_vec.z)
+	if horiz.length_squared() < 0.01:
+		horiz = Vector2(0.88, 0.47)
+	horiz = horiz.normalized()
+	var lat_factor = clampf(approach_vec.y / maxf(approach_vec.length(), 1.0), -0.25, 0.25)
+	var landing_dir = Vector3(horiz.x, lat_factor, horiz.y).normalized()
 	
 	var terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, landing_dir, target.real_radius)
 	var height_at_landing = target.real_radius * terrain_ratio
@@ -3170,15 +3153,11 @@ func _execute_landing(target: CelestialBody) -> void:
 	
 	# Küresel gezegen chunk sistemini canlı tut (tüm gezegen 360° küresel chunk olarak aktif kalır)
 	_flv_update_flyover_lod()
-	
-	# Mesh-Based Chunked LOD terrain sistemi oluştur
-	if is_instance_valid(landed_lod_manager):
-		landed_lod_manager.queue_free()
-		landed_lod_manager = null
 
-	# Gezegenin 3D makro küresini görünür tut (tüm gezegen 360° kesintisiz mevcut kalır)
+	# Gezegenin 3D makro küresini veya küresel chunk sistemini canlı tut
+	var chunk_ready = is_instance_valid(sphere_chunk_manager) and sphere_chunk_manager.is_ready()
 	if is_instance_valid(target.visual_mesh):
-		target.visual_mesh.visible = true
+		target.visual_mesh.visible = not chunk_ready
 		var tmat = target.visual_mesh.get_active_material(0) as StandardMaterial3D
 		if tmat != null:
 			tmat.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -3191,7 +3170,7 @@ func _execute_landing(target: CelestialBody) -> void:
 	for b in active_system_bodies:
 		if b.name == target.name:
 			if is_instance_valid(b.visual_mesh):
-				b.visual_mesh.visible = true
+				b.visual_mesh.visible = not chunk_ready
 				var bmat = b.visual_mesh.get_active_material(0) as StandardMaterial3D
 				if bmat != null: bmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 			if is_instance_valid(b.atmosphere_mesh): b.atmosphere_mesh.visible = false
@@ -3225,10 +3204,8 @@ func _execute_landing(target: CelestialBody) -> void:
 	# Gezegenin kendi etrafındaki dönüşüne göre sabit referans basis'i
 	landed_initial_basis = landed_ship_basis.rotated(Vector3.UP, -target.rotation_angle).orthonormalized()
 	
-	if camera.has_method("reset_camera_orientation"):
-		camera.reset_camera_orientation(landed_ship_basis)
-	else:
-		camera.transform.basis = landed_ship_basis
+	# Kamera yönünü ani sıfırlamak yerine mevcut bakış açısını pürüzsüzce koru (ani kamera sıçramasını engeller)
+	camera.rot_z = 0.0
 	
 	var current_sc = spacecraft if spacecraft != null else (camera.spacecraft if camera != null else null)
 	if current_sc != null:
@@ -3241,11 +3218,6 @@ func _execute_landing(target: CelestialBody) -> void:
 		current_sc.airlock_anim_progress = 0.0
 	is_eva_active = false
 
-	# Düzlemsel ada (PlanetLODManager) kaldırıldı; tüm iniş 360° küresel gezegen üzerinde gerçekleşir
-	if is_instance_valid(landed_lod_manager):
-		landed_lod_manager.queue_free()
-		landed_lod_manager = null
-
 	# Küresel gezegen chunk yöneticisini iniş anında anında güncelle
 	_flv_update_flyover_lod()
 	
@@ -3253,7 +3225,7 @@ func _execute_landing(target: CelestialBody) -> void:
 	# Uzaydaki derin uzay nebulası, bulutsular ve yıldız alanları gezegen atmosferinde gizlenir
 	var camera_3d = camera.camera_node if (camera != null and "camera_node" in camera) else (camera.get_node_or_null("Camera3D") if camera != null else null)
 	if camera_3d:
-		camera_3d.near = 0.3
+		camera_3d.near = 0.05
 		if camera_3d.environment:
 			var env = camera_3d.environment
 			if target.has_atmosphere:
@@ -3309,10 +3281,6 @@ func _launch_from_planet() -> void:
 
 	if is_instance_valid(departing_body.visual_mesh):
 		departing_body.visual_mesh.visible = true
-		
-	if is_instance_valid(landed_lod_manager):
-		landed_lod_manager.queue_free()
-		landed_lod_manager = null
 		
 	# Uzay ortamı ve derin uzay nebulası/yıldız alanını geri yükle
 	var camera_3d = camera.camera_node if (camera != null and "camera_node" in camera) else (camera.get_node_or_null("Camera3D") if camera != null else null)

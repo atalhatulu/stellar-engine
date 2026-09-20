@@ -1,22 +1,22 @@
 [gd_scene format=3 uid="uid://gr178o1hsaid"]
 
-[ext_resource type="Script" path="res://scripts/main.gd" id="1_0xm2m"]
-[ext_resource type="PackedScene" path="res://scenes/spacecraft.tscn" id="2_spacecraft"]
-[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
+[ext_resource type="Script" uid="uid://cxitkbb3ndjfe" path="res://scripts/main.gd" id="1_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://c3q0w2e8m5k1v" path="res://scenes/spacecraft.tscn" id="2_spacecraft"]
+[ext_resource type="PackedScene" uid="uid://b8m3y6yap2v4n" path="res://scenes/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
 
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=915380599]
 script = ExtResource("1_0xm2m")
 
-[node name="Spacecraft" parent="." instance=ExtResource("2_spacecraft")]
+[node name="Spacecraft" parent="." unique_id=169276259 instance=ExtResource("2_spacecraft")]
 
-[node name="Player" parent="." instance=ExtResource("3_player")]
+[node name="Player" parent="." unique_id=1669659914 instance=ExtResource("3_player")]
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1591463159]
 
-[node name="HUD" parent="." instance=ExtResource("4_hud")]
+[node name="HUD" parent="." unique_id=1940478081 instance=ExtResource("4_hud")]
 
-[node name="Control" type="Control" parent="."]
+[node name="Control" type="Control" parent="." unique_id=1132182690]
 visible = false
 layout_mode = 3
 anchors_preset = 15
@@ -26,7 +26,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="RichTextLabel" type="RichTextLabel" parent="Control"]
+[node name="RichTextLabel" type="RichTextLabel" parent="Control" unique_id=897318555]
 layout_mode = 0
 offset_right = 1920.0
 offset_bottom = 1080.0

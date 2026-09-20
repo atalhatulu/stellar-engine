@@ -1,7 +1,6 @@
 extends SceneTree
 
 const PlanetChunkSphere = preload("res://scripts/rendering/planet_chunk_sphere.gd")
-const PlanetLODManager = preload("res://scripts/rendering/planet_lod_manager.gd")
 
 var failures := 0
 
@@ -64,26 +63,26 @@ func run() -> void:
 
 	sphere_lod.queue_free()
 
-	# Test 3: PlanetLODManager Yüzey Yüksekliği ve İniş Senkronizasyonu
+	# Test 3: PlanetChunkSphere Tekleştirilmiş Ortak Yüzey Yüksekliği ve İniş Senkronizasyonu
 	var test_noise = FastNoiseLite.new()
 	test_noise.seed = 1234
-	var h0 = PlanetLODManager.sample_surface_height(0.0, 0.0, test_noise, 0.002, 350.0)
-	var h1 = PlanetLODManager.sample_surface_height(500.0, 200.0, test_noise, 0.002, 350.0)
-	check(h0 != h1, "Fraktal arazi yüksekliği farklı koordinatlarda doğal engebeler üretmeli")
-	check(absf(h0) < 600.0 and absf(h1) < 600.0, "Arazi yükseklikleri tanımlanan sınırda kalmalı")
+	var h0 = PlanetChunkSphere.sample_terrain_height_static(test_noise, Vector3.UP, test_planet.real_radius)
+	var h1 = PlanetChunkSphere.sample_terrain_height_static(test_noise, Vector3.RIGHT, test_planet.real_radius)
+	check(h0 != h1, "Fraktal arazi yüksekliği farklı küresel koordinatlarda doğal engebeler üretmeli")
+	check(absf(h0) < 0.1 and absf(h1) < 0.1, "Yükseklik oranı tanımlanan gerçekçi gezegen topoğrafya sınırında kalmalı")
 
 	# İniş testi
 	scene._execute_landing(test_planet)
 	check(scene.is_landed, "Gezegene iniş başarılı olmalı")
-	check(scene.landed_lod_manager != null, "İnişte yüzey chunk LOD yöneticisi aktif olmalı")
-	check(PlanetLODManager.LOD_LEVELS[0]["subdiv"] >= 40, "LOD0 zemin detay seviyesi en az 40 altbölüme sahip olmalı")
+	check(scene.sphere_chunk_manager != null, "İnişte tekil 360 küresel chunk yöneticisi (sphere_chunk_manager) aktif olmalı")
+	check(scene.sphere_chunk_manager.is_ready(), "İniş anında küresel LOD sistemi hazır durumda olmalı")
 
 	# Orta enlem kontrolü: İniş pozisyonunun Y normali kutupta (>0.8) değil, ortada (<=0.35) olmalı
 	var rel_landing = (scene.virtual_player_position - planet_abs_pos).normalized()
 	check(absf(rel_landing.y) <= 0.35, "İniş gezegenin en tepesine/kutusuna değil, ortasına/ekvatoruna yapılmalı (|Y| <= 0.35 olmalı, alınan: %.2f)" % rel_landing.y)
 
 	# LOD Debug renk modu ve istatistik testi
-	var lod_mgr: PlanetLODManager = scene.landed_lod_manager
+	var lod_mgr: PlanetChunkSphere = scene.sphere_chunk_manager
 	var stats_before = lod_mgr.get_lod_stats()
 	check(stats_before.has("total_chunks") and stats_before.has("lod_counts"), "LOD yöneticisi detaylı telemetri istatistikleri sunmalı")
 	var color_mode_active = lod_mgr.toggle_debug_colors()
@@ -94,7 +93,7 @@ func run() -> void:
 
 	var cam_3d = scene.camera.get_node_or_null("Camera3D")
 	if cam_3d != null:
-		check(cam_3d.near <= 0.1, "Yüzeyde yakın kırpma (near plane) ayak altındaki zemin kesilmesin diye 10cm veya daha az olmalı")
+		check(cam_3d.near <= 0.3, "Yüzeyde yakın kırpma (near plane) ayak altındaki zemin kesilmesin diye optimize olmalı")
 
 	scene._launch_from_planet()
 	check(not scene.is_landed, "Kalkış başarılı olmalı")

@@ -36,11 +36,18 @@ var bar_throttle: ProgressBar
 var lbl_airlock_state: Label
 var lbl_pilot_state: Label
 
+# Özel Yazı Tipleri (Custom Typography)
+var font_main: Font
+var font_bold: Font
+var font_mono: Font
+var font_title: Font
+
 # Sağ Taraf (Hedef Kilit Kartı - Geriye dönük uyumluluk)
 var target_card: PanelContainer
 var lbl_target_name: Label
 var lbl_target_type: Label
 var lbl_target_dist: Label
+var lbl_target_travel: Label
 var lbl_target_details: Label
 
 # Starfield Detaylı Cisim ve Gezegen Kartı (Sol Panel)
@@ -65,6 +72,13 @@ var lbl_lod_grid_status: Label
 var lbl_lod_breakdown: Label
 var lbl_lod_perf: Label
 var lbl_lod_color_mode: Label
+var show_lod_debug_card: bool = true
+
+func toggle_lod_debug_card() -> bool:
+	show_lod_debug_card = !show_lod_debug_card
+	if is_instance_valid(lod_debug_card):
+		lod_debug_card.visible = show_lod_debug_card
+	return show_lod_debug_card
 
 # Alt Orta (Eylem Tuşları Rozet Barı)
 var action_bar: HBoxContainer
@@ -73,9 +87,54 @@ var action_bar: HBoxContainer
 var crosshair_center: Control
 var visor_overlay: Control
 
+# İniş ve Kalkış Sinematik Geçiş Katmanı (Atmospheric Entry & Launch Transition)
+var transition_overlay: ColorRect
+var lbl_trans_title: Label
+var lbl_trans_sub: Label
+var bar_trans: ProgressBar
+var is_transitioning: bool = false
+var transition_timer: float = 0.0
+var transition_duration: float = 1.4
+var transition_midpoint_called: bool = false
+var transition_midpoint_callback: Callable
+var transition_finish_callback: Callable
+var transition_mode: String = ""
+var transition_body_name: String = ""
+
+func _init_fonts() -> void:
+	if ResourceLoader.exists("res://assets/fonts/FiraSans-Medium.ttf"):
+		font_main = load("res://assets/fonts/FiraSans-Medium.ttf")
+	if ResourceLoader.exists("res://assets/fonts/FiraSans-Bold.ttf"):
+		font_bold = load("res://assets/fonts/FiraSans-Bold.ttf")
+	if ResourceLoader.exists("res://assets/fonts/FiraSansCondensed-Bold.ttf"):
+		font_title = load("res://assets/fonts/FiraSansCondensed-Bold.ttf")
+	if ResourceLoader.exists("res://assets/fonts/DejaVuSansMono-Bold.ttf"):
+		font_mono = load("res://assets/fonts/DejaVuSansMono-Bold.ttf")
+
+	if font_main == null:
+		var sf = SystemFont.new()
+		sf.font_names = PackedStringArray(["Fira Sans", "Segoe UI", "Ubuntu", "sans-serif"])
+		font_main = sf
+	if font_bold == null:
+		var sf = SystemFont.new()
+		sf.font_names = PackedStringArray(["Fira Sans", "Segoe UI", "Ubuntu", "sans-serif"])
+		sf.font_weight = 700
+		font_bold = sf
+	if font_title == null:
+		var sf = SystemFont.new()
+		sf.font_names = PackedStringArray(["Fira Sans Condensed", "Impact", "Arial Black", "sans-serif"])
+		sf.font_weight = 800
+		font_title = sf
+	if font_mono == null:
+		var sf = SystemFont.new()
+		sf.font_names = PackedStringArray(["DejaVu Sans Mono", "Consolas", "Courier New", "monospace"])
+		sf.font_weight = 600
+		font_mono = sf
+
 func _ready():
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_init_fonts()
 	_build_hud_layout()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,10 +183,10 @@ func _build_hud_layout() -> void:
 
 	# 3. Sol Alt Panel: Oyuncu / Astronot Yaşam Destek
 	player_card = PanelContainer.new()
-	player_card.custom_minimum_size = Vector2(330, 185)
+	player_card.custom_minimum_size = Vector2(320, 180)
 	player_card.anchor_left = 0.02
-	player_card.anchor_top = 0.75
-	player_card.anchor_right = 0.22
+	player_card.anchor_top = 0.74
+	player_card.anchor_right = 0.23
 	player_card.anchor_bottom = 0.96
 	player_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	player_card.add_theme_stylebox_override("panel", _create_glass_box(Color(0.0, 0.85, 1.0, 0.5), 10, Color(0.02, 0.06, 0.12, 0.85)))
@@ -170,9 +229,9 @@ func _build_hud_layout() -> void:
 
 	# 4. Sağ Alt Panel: Keşif Korveti Uçuş Telemetrisi
 	ship_card = PanelContainer.new()
-	ship_card.custom_minimum_size = Vector2(340, 185)
-	ship_card.anchor_left = 0.78
-	ship_card.anchor_top = 0.75
+	ship_card.custom_minimum_size = Vector2(330, 180)
+	ship_card.anchor_left = 0.77
+	ship_card.anchor_top = 0.74
 	ship_card.anchor_right = 0.98
 	ship_card.anchor_bottom = 0.96
 	ship_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -239,10 +298,13 @@ func _build_hud_layout() -> void:
 	lbl_target_type = _create_label("TİP: YAŞANABİLİR GEZEGEN", Color(0.0, 0.9, 1.0), 13, false)
 	target_vbox.add_child(lbl_target_type)
 	
-	lbl_target_dist = _create_label("MESAFE: 1.45 AU", Color(1.0, 0.9, 0.3), 18, true)
+	lbl_target_dist = _create_label("MESAFE: 1.45 AU", Color(1.0, 0.9, 0.3), 16, true, true)
 	target_vbox.add_child(lbl_target_dist)
-	
-	lbl_target_details = _create_label("YARIÇAP: 6.371 km | YERÇEKİMİ: 1.00 g", Color(0.7, 0.8, 0.9), 12, false)
+
+	lbl_target_travel = _create_label("KAT ETME: Durağan", Color(0.2, 1.0, 0.5), 13, true, true)
+	target_vbox.add_child(lbl_target_travel)
+
+	lbl_target_details = _create_label("YARIÇAP: 6.371 km | YERÇEKİMİ: 1.00 g", Color(0.7, 0.8, 0.9), 11, false)
 	target_vbox.add_child(lbl_target_details)
 
 	# 6. Starfield Tarzı Sol Detaylı Cisim ve Gezegen Kartı (Starfield Card)
@@ -267,10 +329,10 @@ func _build_hud_layout() -> void:
 
 func _build_lod_debug_card() -> void:
 	lod_debug_card = PanelContainer.new()
-	lod_debug_card.anchor_left = 0.72
+	lod_debug_card.anchor_left = 0.74
 	lod_debug_card.anchor_right = 0.98
 	lod_debug_card.anchor_top = 0.08
-	lod_debug_card.anchor_bottom = 0.32
+	lod_debug_card.anchor_bottom = 0.30
 	lod_debug_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lod_debug_card.add_theme_stylebox_override("panel", _create_glass_box(Color(0.0, 0.85, 0.5, 0.5), 6, Color(0.01, 0.04, 0.08, 0.82)))
 	lod_debug_card.visible = false
@@ -280,7 +342,7 @@ func _build_lod_debug_card() -> void:
 	vbox.add_theme_constant_override("separation", 4)
 	lod_debug_card.add_child(vbox)
 	
-	lbl_lod_title = _create_label("GEZEGEN LOD & ARAZİ [F8: Renk]", Color(0.1, 0.95, 0.6), 13, true)
+	lbl_lod_title = _create_label("GEZEGEN LOD [V: Renk | B: Sınır | Z: Tel]", Color(0.1, 0.95, 0.6), 12, true)
 	vbox.add_child(lbl_lod_title)
 	
 	lbl_lod_grid_status = _create_label("DURUM: BEKLENİYOR", Color(0.8, 0.9, 1.0), 11, false)
@@ -292,8 +354,49 @@ func _build_lod_debug_card() -> void:
 	lbl_lod_perf = _create_label("Kuyruk: 0 | Süre: 0.0 ms", Color(0.7, 0.8, 0.9), 10, false)
 	vbox.add_child(lbl_lod_perf)
 	
-	lbl_lod_color_mode = _create_label("Renk Modu [F8]: KAPALI", Color(0.9, 0.7, 0.2), 11, true)
+	lbl_lod_color_mode = _create_label("Debug: [B] Sınır KAPALI | [V] Renk KAPALI", Color(0.9, 0.7, 0.2), 11, true)
 	vbox.add_child(lbl_lod_color_mode)
+
+	# 7. İniş ve Kalkış Sinematik Geçiş Katmanı (Atmospheric Entry & Launch Overlay)
+	transition_overlay = ColorRect.new()
+	transition_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	transition_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	transition_overlay.color = Color(0.01, 0.02, 0.04, 0.0)
+	transition_overlay.visible = false
+	add_child(transition_overlay)
+	
+	var trans_center_vb = VBoxContainer.new()
+	trans_center_vb.set_anchors_preset(Control.PRESET_CENTER)
+	trans_center_vb.custom_minimum_size = Vector2(700, 120)
+	trans_center_vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	trans_center_vb.add_theme_constant_override("separation", 12)
+	transition_overlay.add_child(trans_center_vb)
+	
+	lbl_trans_title = Label.new()
+	lbl_trans_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_trans_title.add_theme_font_size_override("font_size", 22)
+	lbl_trans_title.add_theme_color_override("font_color", Color(0.1, 0.95, 1.0))
+	trans_center_vb.add_child(lbl_trans_title)
+	
+	lbl_trans_sub = Label.new()
+	lbl_trans_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_trans_sub.add_theme_font_size_override("font_size", 13)
+	lbl_trans_sub.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
+	trans_center_vb.add_child(lbl_trans_sub)
+	
+	bar_trans = ProgressBar.new()
+	bar_trans.custom_minimum_size = Vector2(380, 4)
+	bar_trans.show_percentage = false
+	bar_trans.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var bar_trans_bg = StyleBoxFlat.new()
+	bar_trans_bg.bg_color = Color(0.1, 0.15, 0.25, 0.5)
+	bar_trans_bg.set_corner_radius_all(2)
+	bar_trans.add_theme_stylebox_override("background", bar_trans_bg)
+	var bar_trans_fg = StyleBoxFlat.new()
+	bar_trans_fg.bg_color = Color(0.0, 0.9, 1.0, 0.95)
+	bar_trans_fg.set_corner_radius_all(2)
+	bar_trans.add_theme_stylebox_override("fill", bar_trans_fg)
+	trans_center_vb.add_child(bar_trans)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GÖRSEL VE ÇİZİM DESTEĞİ (KASK VİZÖRÜ & MERKEZ NİŞANGAH)
@@ -310,6 +413,19 @@ func _draw_visor_and_reticle() -> void:
 	for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
 		visor_overlay.draw_line(center + direction * 7.0, center + direction * 14.0, ink, 3.5, true)
 		visor_overlay.draw_line(center + direction * 7.0, center + direction * 14.0, aim, 1.5, true)
+
+	# Fütüristik Uçuş Braketleri (Tactical Flight Brackets [  ])
+	var b_dist = 28.0
+	var b_len = 8.0
+	var b_col = Color(0.0, 0.85, 1.0, 0.45)
+	# Sol braket [
+	visor_overlay.draw_line(center + Vector2(-b_dist, -b_len), center + Vector2(-b_dist, b_len), b_col, 1.5)
+	visor_overlay.draw_line(center + Vector2(-b_dist, -b_len), center + Vector2(-b_dist + 5.0, -b_len), b_col, 1.5)
+	visor_overlay.draw_line(center + Vector2(-b_dist, b_len), center + Vector2(-b_dist + 5.0, b_len), b_col, 1.5)
+	# Sağ braket ]
+	visor_overlay.draw_line(center + Vector2(b_dist, -b_len), center + Vector2(b_dist, b_len), b_col, 1.5)
+	visor_overlay.draw_line(center + Vector2(b_dist, -b_len), center + Vector2(b_dist - 5.0, -b_len), b_col, 1.5)
+	visor_overlay.draw_line(center + Vector2(b_dist, b_len), center + Vector2(b_dist - 5.0, b_len), b_col, 1.5)
 	
 	# Kask Vizör Köşe Hatları (Outer Wilds / Star Citizen Kask Hissi)
 	var w = size.x
@@ -334,13 +450,110 @@ func _draw_visor_and_reticle() -> void:
 	visor_overlay.draw_line(Vector2(w - margin, h - margin), Vector2(w - margin, h - margin - corner_len), glow, 2.0)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SİNEMATİK İNİŞ VE KALKIŞ GEÇİŞ SİSTEMİ (ATMOSPHERIC ENTRY & LAUNCH FADE)
+# ─────────────────────────────────────────────────────────────────────────────
+func trigger_landing_transition(body_name: String, on_midpoint: Callable, on_finish: Callable = Callable()) -> void:
+	is_transitioning = true
+	transition_timer = 0.0
+	transition_duration = 1.4
+	transition_midpoint_called = false
+	transition_midpoint_callback = on_midpoint
+	transition_finish_callback = on_finish
+	transition_mode = "LANDING"
+	transition_body_name = body_name
+	
+	if is_instance_valid(transition_overlay):
+		transition_overlay.visible = true
+		transition_overlay.color = Color(0.01, 0.02, 0.04, 0.0)
+	if is_instance_valid(lbl_trans_title):
+		lbl_trans_title.text = "ATMOSFERİK ALÇALMA VE İNİŞ PROTOKOLÜ"
+		lbl_trans_title.add_theme_color_override("font_color", Color(0.1, 0.95, 1.0))
+		lbl_trans_title.modulate.a = 0.0
+	if is_instance_valid(lbl_trans_sub):
+		lbl_trans_sub.text = "%s // YÜZEY İNİŞ DÜZENİ AKTİF" % body_name.to_upper()
+		lbl_trans_sub.modulate.a = 0.0
+	if is_instance_valid(bar_trans):
+		bar_trans.value = 0.0
+		bar_trans.modulate.a = 0.0
+
+func trigger_launch_transition(body_name: String, on_midpoint: Callable, on_finish: Callable = Callable()) -> void:
+	is_transitioning = true
+	transition_timer = 0.0
+	transition_duration = 1.4
+	transition_midpoint_called = false
+	transition_midpoint_callback = on_midpoint
+	transition_finish_callback = on_finish
+	transition_mode = "LAUNCH"
+	transition_body_name = body_name
+	
+	if is_instance_valid(transition_overlay):
+		transition_overlay.visible = true
+		transition_overlay.color = Color(0.01, 0.02, 0.04, 0.0)
+	if is_instance_valid(lbl_trans_title):
+		lbl_trans_title.text = "YÖRÜNGEYE ÇIKIŞ PROTOKOLÜ"
+		lbl_trans_title.add_theme_color_override("font_color", Color(1.0, 0.65, 0.1))
+		lbl_trans_title.modulate.a = 0.0
+	if is_instance_valid(lbl_trans_sub):
+		lbl_trans_sub.text = "%s YÜZEYİNDEN AYRILINIYOR // UZAY SEYRİ" % body_name.to_upper()
+		lbl_trans_sub.modulate.a = 0.0
+	if is_instance_valid(bar_trans):
+		bar_trans.value = 0.0
+		bar_trans.modulate.a = 0.0
+
+func _process(delta: float) -> void:
+	if not is_transitioning:
+		return
+		
+	transition_timer += delta
+	var half_dur = transition_duration * 0.45
+	var fade_in_phase = transition_timer <= half_dur
+	
+	var overlay_alpha: float = 0.0
+	var text_alpha: float = 0.0
+	
+	if fade_in_phase:
+		var t = clampf(transition_timer / maxf(half_dur, 0.01), 0.0, 1.0)
+		overlay_alpha = t * t
+		text_alpha = clampf((t - 0.2) / 0.8, 0.0, 1.0)
+		if is_instance_valid(bar_trans):
+			bar_trans.value = t * 50.0
+	else:
+		if not transition_midpoint_called:
+			transition_midpoint_called = true
+			if transition_midpoint_callback.is_valid():
+				transition_midpoint_callback.call()
+				
+		var out_dur = maxf(transition_duration - half_dur, 0.01)
+		var out_t = clampf((transition_timer - half_dur) / out_dur, 0.0, 1.0)
+		overlay_alpha = 1.0 - (out_t * out_t)
+		text_alpha = 1.0 - out_t
+		if is_instance_valid(bar_trans):
+			bar_trans.value = 50.0 + out_t * 50.0
+			
+	if is_instance_valid(transition_overlay):
+		transition_overlay.color = Color(0.01, 0.02, 0.04, overlay_alpha)
+	if is_instance_valid(lbl_trans_title):
+		lbl_trans_title.modulate.a = text_alpha
+	if is_instance_valid(lbl_trans_sub):
+		lbl_trans_sub.modulate.a = text_alpha
+	if is_instance_valid(bar_trans):
+		bar_trans.modulate.a = text_alpha
+		
+	if transition_timer >= transition_duration:
+		is_transitioning = false
+		if is_instance_valid(transition_overlay):
+			transition_overlay.visible = false
+		if transition_finish_callback.is_valid():
+			transition_finish_callback.call()
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GERÇEK ZAMANLI TELEMETRİ GÜNCELLEME (HER KARE ÇAĞRILIR)
 # ─────────────────────────────────────────────────────────────────────────────
 func update_hud(main_node: Node3D) -> void:
 	if not is_instance_valid(main_node):
 		return
 		
-	visible = main_node.is_hud_visible
+	visible = main_node.is_hud_visible or is_transitioning
 	if not visible:
 		return
 		
@@ -409,18 +622,25 @@ func update_hud(main_node: Node3D) -> void:
 	
 	if main_node.get("is_eva_active") == true:
 		player_card.visible = true
+		ship_card.visible = false
 		lbl_player_title.text = "ASTRONOT YAŞAM DESTEK (EVA)"
-		var eva_vel = main_node.player_velocity.length()
-		var boost_str = " (BOOST)" if main_node.get("is_jetpack_boosting") else ""
-		lbl_player_speed.text = "EVA HIZI: %.1f m/s%s" % [eva_vel, boost_str]
+		if main_node.get("is_landed") == true:
+			var cur_spd: float = main_node.WALK_SPEED_PRESETS[main_node.walk_speed_index]
+			var boost_str = " [BOOST]" if main_node.get("is_jetpack_boosting") else ""
+			var jet_str = " [JETPACK]" if main_node.get("is_jetpack_active") else ""
+			lbl_player_speed.text = "YÜZEY: %.1f m/s (Kademe %d)%s%s | GEMİ: %.1f m" % [cur_spd, main_node.walk_speed_index + 1, boost_str, jet_str, main_node.dist_to_ship_eva]
+		else:
+			var eva_vel = main_node.player_velocity.length()
+			var boost_str = " (BOOST)" if main_node.get("is_jetpack_boosting") else ""
+			lbl_player_speed.text = "EVA HIZI: %.1f m/s%s | GEMİ: %.1f m" % [eva_vel, boost_str, main_node.dist_to_ship_eva]
 	elif sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
 		player_card.visible = true
+		ship_card.visible = true
 		lbl_player_title.text = "ASTRONOT (KABİN İÇİ)"
 		lbl_player_speed.text = "KONUM: %s" % ("HAVA KİLİDİ" if sc.near_airlock else ("KOLTUK YANI" if sc.near_pilot_seat else "KORİDOR"))
 	else:
-		player_card.visible = true
-		lbl_player_title.text = "PİLOT YAŞAM DESTEK"
-		lbl_player_speed.text = "PİLOT: KOKPİTTE GÜVENDE"
+		player_card.visible = false
+		ship_card.visible = true
 
 	# 3. Keşif Korveti Telemetrisi
 	var actual_speed: float = float(main_node.flight_speed_mps) if main_node.get("flight_speed_mps") != null else 0.0
@@ -474,8 +694,8 @@ func update_hud(main_node: Node3D) -> void:
 		starfield_card.anchor_bottom = 0.94
 	else:
 		mini_system_map.visible = false
-		starfield_card.anchor_top = 0.12
-		starfield_card.anchor_bottom = 0.88
+		starfield_card.anchor_top = 0.08
+		starfield_card.anchor_bottom = 0.72
 
 	# Starfield Bilgi Kartını Güncelle
 	_update_starfield_card(main_node)
@@ -489,29 +709,62 @@ func update_hud(main_node: Node3D) -> void:
 func _update_lod_debug_card(main_node: Node3D) -> void:
 	if not is_instance_valid(lod_debug_card):
 		return
+	if not show_lod_debug_card:
+		lod_debug_card.visible = false
+		return
 		
 	var lod_mgr = main_node.get("landed_lod_manager")
-	if is_instance_valid(lod_mgr) and lod_mgr.has_method("get_lod_stats") and lod_mgr.is_active():
+	var sphere_mgr = main_node.get("sphere_chunk_manager")
+	var show_borders = main_node.get("show_chunk_borders") == true
+	var color_mode = main_node.get("debug_lod_colors_active") == true
+
+	if is_instance_valid(lod_mgr) and lod_mgr.has_method("get_lod_stats") and lod_mgr.is_active() and lod_mgr.visible:
 		lod_debug_card.visible = true
+		lbl_lod_title.text = "GEZEGEN CHUNK SİSTEMİ (YÜZEY + KÜRE)"
 		var stats: Dictionary = lod_mgr.get_lod_stats()
 		var total_chunks = stats.get("total_chunks", 0)
 		var grid_pos: Vector2i = stats.get("grid_pos", Vector2i.ZERO)
 		var counts: Dictionary = stats.get("lod_counts", {})
-		var c_mode = stats.get("debug_color_mode", false)
 		var q_size = stats.get("build_queue_size", 0)
 		var b_usec = stats.get("last_build_usec", 0)
 		
-		lbl_lod_grid_status.text = "Grid: (%d, %d) | Aktif Parça: %d" % [grid_pos.x, grid_pos.y, total_chunks]
+		var sphere_total = 0
+		if is_instance_valid(sphere_mgr) and sphere_mgr.has_method("get_lod_stats"):
+			sphere_total = sphere_mgr.get_lod_stats().get("total_chunks", 24)
+		
+		lbl_lod_grid_status.text = "Yüzey: %d Parça | Küre: %d Parça (360°)" % [total_chunks, sphere_total]
 		lbl_lod_breakdown.text = "L0(40x40): %d [Yeşil]  L1(24x24): %d [Mavi]\nL2(14x14): %d [Sarı]   L3(6x6): %d [Turuncu]\nL4(2x2): %d [Kırmızı]" % [
 			counts.get(0, 0), counts.get(1, 0), counts.get(2, 0), counts.get(3, 0), counts.get(4, 0)
 		]
 		lbl_lod_perf.text = "Kuyruk: %d | Son Üretim: %.2f ms" % [q_size, b_usec / 1000.0]
-		if c_mode:
-			lbl_lod_color_mode.text = "Görsel Debug [F8]: AÇIK (LOD Renkleri)"
-			lbl_lod_color_mode.modulate = Color(0.2, 1.0, 0.4)
+		lbl_lod_color_mode.text = "[B] Sınır: %s | [V] Renk: %s | [Z] Tel: %s" % [
+			"AÇIK" if show_borders else "KAPALI",
+			"AÇIK" if color_mode else "KAPALI",
+			"AÇIK" if main_node.get("is_wireframe_mode") else "KAPALI"
+		]
+		lbl_lod_color_mode.modulate = Color(0.2, 1.0, 0.4) if (color_mode or show_borders) else Color(0.8, 0.8, 0.8)
+	elif is_instance_valid(sphere_mgr) and sphere_mgr.is_active():
+		lod_debug_card.visible = true
+		lbl_lod_title.text = "KÜRESEL GEZEGEN CHUNK LOD (TÜM GEZEGEN AKTİF)"
+		if sphere_mgr.has_method("get_lod_stats"):
+			var stats: Dictionary = sphere_mgr.get_lod_stats()
+			var total = stats.get("total_chunks", 24)
+			var counts: Dictionary = stats.get("lod_counts", {})
+			lbl_lod_grid_status.text = "Tüm Gezegen Aktif: %d Parça | Küresel 360°" % total
+			lbl_lod_breakdown.text = "L0: %d [Kırmızı]  L1: %d [Turuncu]  L2: %d [Sarı]\nL3: %d [Mavi]     L4: %d [Yeşil]    L5: %d [Turkuaz]" % [
+				counts.get(0, 0), counts.get(1, 0), counts.get(2, 0), counts.get(3, 0), counts.get(4, 0), counts.get(5, 0)
+			]
+			lbl_lod_perf.text = "Gezegen Yarıçapı: %.1f km" % (stats.get("body_radius", 6000000.0) / 1000.0)
 		else:
-			lbl_lod_color_mode.text = "Görsel Debug [F8]: KAPALI (Standart Doku)"
-			lbl_lod_color_mode.modulate = Color(0.9, 0.7, 0.2)
+			lbl_lod_grid_status.text = "Tüm Gezegen Aktif: 24 Kök Parça | 5 Seviye Quadtree"
+			lbl_lod_breakdown.text = "L0: Kırmızı | L1: Turuncu | L2: Sarı\nL3: Mavi    | L4: Yeşil   | L5: Turkuaz"
+			lbl_lod_perf.text = "Küre Durumu: Aktif Küresel Çap"
+		lbl_lod_color_mode.text = "[B] Sınır: %s | [V] Renk: %s | [Z] Tel: %s" % [
+			"AÇIK" if show_borders else "KAPALI",
+			"AÇIK" if color_mode else "KAPALI",
+			"AÇIK" if main_node.get("is_wireframe_mode") else "KAPALI"
+		]
+		lbl_lod_color_mode.modulate = Color(0.2, 1.0, 0.4) if (color_mode or show_borders) else Color(0.8, 0.8, 0.8)
 	else:
 		lod_debug_card.visible = false
 
@@ -532,13 +785,16 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 	if main_node.get("is_eva_active") == true:
 		if main_node.get("is_near_ship_airlock") == true:
 			_add_badge("[E] GEMİYE BİN (HAVA KİLİDİ)", Color(0.1, 1.0, 0.5))
-		_add_badge("[WASD] İTİCİ", Color(0.0, 0.85, 1.0))
-		_add_badge("[X] FREN | [F] KAMERA", Color(0.5, 0.8, 1.0))
+		_add_badge("[WASD] HAREKET", Color(0.0, 0.85, 1.0))
+		_add_badge("[SPACE] JETPACK", Color(0.0, 0.85, 1.0))
 		_add_badge("[SHIFT] BOOST", Color(1.0, 0.6, 0.1))
-		_add_badge("[SPACE] YÜKSEL", Color(0.0, 0.85, 1.0))
 		_add_badge("[CTRL] ALÇAL", Color(0.0, 0.85, 1.0))
+		_add_badge("[X] FREN | [F] KAMERA", Color(0.5, 0.8, 1.0))
 		_add_badge("[L] FENER", Color(0.1, 1.0, 0.6))
-		_add_badge("[TAB] HUD", Color(0.6, 0.6, 0.7))
+		_add_badge("[F8] LOD BİLGİ", Color(0.2, 1.0, 0.4) if show_lod_debug_card else Color(0.5, 0.5, 0.5))
+		if main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
+			_add_badge("[C] HEDEF KAPAT", Color(1.0, 0.45, 0.35))
+		_add_badge("[TAB] HUD GİZLE", Color(0.6, 0.6, 0.7))
 		return
 		
 	if sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
@@ -549,7 +805,7 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 			_add_badge("[E] KOLTUĞA OTUR", Color(0.1, 1.0, 0.5))
 		_add_badge("[WASD] KABİNDE YÜRÜ", Color(0.0, 0.85, 1.0))
 		_add_badge("[F] KAMERA MODU", Color(0.8, 0.5, 1.0))
-		_add_badge("[TAB] HUD", Color(0.6, 0.6, 0.7))
+		_add_badge("[TAB] HUD GİZLE", Color(0.6, 0.6, 0.7))
 		return
 		
 	# Kokpit Sürüşü veya 3. Şahıs
@@ -559,17 +815,19 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 	else:
 		if main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
 			_add_badge("[G] OTOPİLOT SEYRİ", Color(0.1, 1.0, 0.5))
-			_add_badge("[C] ODAKLAN", Color(0.0, 0.9, 1.0))
+			_add_badge("[C] HEDEF KAPAT", Color(1.0, 0.45, 0.35))
 			_add_badge("[CTRL+T] IŞINLAN", Color(1.0, 0.7, 0.2))
 		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
 			_add_badge("[E] KOLTUKTAN KALK", Color(0.0, 0.9, 1.0))
-		if main_node.is_landed:
-			_add_badge("[F8] LOD RENKLERİ", Color(0.2, 0.9, 0.5))
+		_add_badge("[B] SINIRLAR", Color(0.0, 0.85, 1.0) if main_node.show_chunk_borders else Color(0.5, 0.5, 0.5))
+		_add_badge("[V] LOD RENKLERİ", Color(0.2, 1.0, 0.4) if main_node.debug_lod_colors_active else Color(0.5, 0.5, 0.5))
+		_add_badge("[Z] TEL KAFES", Color(1.0, 0.9, 0.2) if main_node.is_wireframe_mode else Color(0.5, 0.5, 0.5))
+		_add_badge("[F8] LOD BİLGİ", Color(0.2, 1.0, 0.4) if show_lod_debug_card else Color(0.5, 0.5, 0.5))
 		_add_badge("[WASD] GEMİ SÜRÜŞÜ", Color(0.0, 0.85, 1.0))
 		_add_badge("[Q] ROLL", Color(0.0, 0.85, 1.0))
 		_add_badge("[F] KAMERA MODU", Color(0.8, 0.5, 1.0))
 		_add_badge("[M] HARİTA", Color(1.0, 0.65, 0.1))
-		_add_badge("[TAB] HUD", Color(0.6, 0.6, 0.7))
+		_add_badge("[TAB] HUD GİZLE", Color(0.6, 0.6, 0.7))
 
 func _add_badge(text: String, color: Color) -> void:
 	var badge = PanelContainer.new()
@@ -583,52 +841,65 @@ func _add_badge(text: String, color: Color) -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 # YARDIMCI STİL VE METİN BİÇİMLENDİRME
 # ─────────────────────────────────────────────────────────────────────────────
-func _create_glass_box(border_color: Color, corner_rad: int, bg_color: Color) -> StyleBoxFlat:
+func _create_glass_box(border_color: Color, corner_rad: int, bg_color: Color = Color(0.015, 0.03, 0.06, 0.88), accent_top: bool = true) -> StyleBoxFlat:
 	var box = StyleBoxFlat.new()
 	box.bg_color = bg_color
 	box.border_color = border_color
 	box.border_width_left = 1
-	box.border_width_top = 1
+	box.border_width_top = 2 if accent_top else 1
 	box.border_width_right = 1
 	box.border_width_bottom = 1
 	box.corner_radius_top_left = corner_rad
 	box.corner_radius_top_right = corner_rad
 	box.corner_radius_bottom_left = corner_rad
 	box.corner_radius_bottom_right = corner_rad
-	box.content_margin_left = 10
-	box.content_margin_right = 10
-	box.content_margin_top = 8
-	box.content_margin_bottom = 8
+	box.content_margin_left = 12
+	box.content_margin_right = 12
+	box.content_margin_top = 10
+	box.content_margin_bottom = 10
+	box.shadow_color = Color(border_color.r, border_color.g, border_color.b, 0.20)
+	box.shadow_size = 5
+	box.shadow_offset = Vector2(0, 1)
 	return box
 
 func _create_progress_bar(fill_color: Color, bg_color: Color) -> ProgressBar:
 	var pb = ProgressBar.new()
-	pb.custom_minimum_size = Vector2(0, 14)
+	pb.custom_minimum_size = Vector2(0, 7)
 	pb.show_percentage = false
 	pb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
 	var bg_box = StyleBoxFlat.new()
 	bg_box.bg_color = bg_color
-	bg_box.corner_radius_top_left = 4
-	bg_box.corner_radius_top_right = 4
-	bg_box.corner_radius_bottom_left = 4
-	bg_box.corner_radius_bottom_right = 4
+	bg_box.corner_radius_top_left = 2
+	bg_box.corner_radius_top_right = 2
+	bg_box.corner_radius_bottom_left = 2
+	bg_box.corner_radius_bottom_right = 2
 	pb.add_theme_stylebox_override("background", bg_box)
 	
 	var fill_box = StyleBoxFlat.new()
 	fill_box.bg_color = fill_color
-	fill_box.corner_radius_top_left = 4
-	fill_box.corner_radius_top_right = 4
-	fill_box.corner_radius_bottom_left = 4
-	fill_box.corner_radius_bottom_right = 4
+	fill_box.corner_radius_top_left = 2
+	fill_box.corner_radius_top_right = 2
+	fill_box.corner_radius_bottom_left = 2
+	fill_box.corner_radius_bottom_right = 2
+	fill_box.shadow_color = Color(fill_color.r, fill_color.g, fill_color.b, 0.45)
+	fill_box.shadow_size = 3
 	pb.add_theme_stylebox_override("fill", fill_box)
 	return pb
 
-func _create_label(text: String, color: Color, font_size: int, bold: bool) -> Label:
+func _create_label(text: String, color: Color, font_size: int, bold: bool = false, is_mono: bool = false, is_title: bool = false) -> Label:
 	var lbl = Label.new()
 	lbl.text = text
 	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_font_size_override("font_size", font_size)
+	if is_title and font_title != null:
+		lbl.add_theme_font_override("font", font_title)
+	elif is_mono and font_mono != null:
+		lbl.add_theme_font_override("font", font_mono)
+	elif bold and font_bold != null:
+		lbl.add_theme_font_override("font", font_bold)
+	elif font_main != null:
+		lbl.add_theme_font_override("font", font_main)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return lbl
@@ -649,17 +920,135 @@ func _format_speed(current_speed: float) -> String:
 	else:
 		return "%.1f m/s" % current_speed
 
-func _format_distance(meters: float) -> String:
-	if meters >= 0.01 * LIGHT_YEAR:
-		return "%.2f Işık Yılı" % (meters / LIGHT_YEAR)
-	elif meters >= 0.1 * ONE_AU:
-		return "%.2f AU" % (meters / ONE_AU)
-	elif meters >= 1000000000.0:
+# ─────────────────────────────────────────────────────────────────────────────
+# ASTRONOMİK IŞIK MESAFESİ VE SEYAHAT SÜRESİ HESAPLAYICI
+# (Saniye, Dakika, Saat, Gün, Hafta, Ay, Yıl, Asır)
+# ─────────────────────────────────────────────────────────────────────────────
+static func format_time_duration(t: float) -> String:
+	if t <= 0.0:
+		return "0 Saniye"
+		
+	const SEC_IN_CENTURY: float = 3155760000.0 # 1 Asır = 100 Julian Işık Yılı
+	const SEC_IN_YEAR: float    = 31557600.0   # 1 Yıl = 365.25 Gün
+	const SEC_IN_MONTH: float   = 2629800.0    # 1 Ay = 30.4375 Gün (365.25 / 12)
+	const SEC_IN_WEEK: float    = 604800.0     # 1 Hafta = 7 Gün
+	const SEC_IN_DAY: float     = 86400.0      # 1 Gün = 24 Saat
+	const SEC_IN_HOUR: float    = 3600.0       # 1 Saat = 60 Dakika
+	const SEC_IN_MINUTE: float  = 60.0         # 1 Dakika = 60 Saniye
+	
+	# 1. Asır (Centuries) - Derin galaktik mesafe (100+ Işık Yılı)
+	if t >= SEC_IN_CENTURY:
+		var centuries = int(t / SEC_IN_CENTURY)
+		var rem_years = int(fmod(t, SEC_IN_CENTURY) / SEC_IN_YEAR)
+		if rem_years > 0:
+			return "%d Asır %d Yıl" % [centuries, rem_years]
+		return "%d Asır" % centuries
+		
+	# 2. Yıl (Years) - Yıldızlararası mesafe (1 - 100 Işık Yılı)
+	elif t >= SEC_IN_YEAR:
+		var years = int(t / SEC_IN_YEAR)
+		var rem_months = int(fmod(t, SEC_IN_YEAR) / SEC_IN_MONTH)
+		if rem_months > 0:
+			return "%d Yıl %d Ay" % [years, rem_months]
+		return "%d Yıl" % years
+		
+	# 3. Ay (Months) - Dış Oort bulutu (~5000 - 63000 AU)
+	elif t >= SEC_IN_MONTH:
+		var months = int(t / SEC_IN_MONTH)
+		var rem_weeks = int(fmod(t, SEC_IN_MONTH) / SEC_IN_WEEK)
+		if rem_weeks > 0:
+			return "%d Ay %d Hafta" % [months, rem_weeks]
+		return "%d Ay" % months
+		
+	# 4. Hafta (Weeks) - İç Oort bulutu (~1200 - 5000 AU)
+	elif t >= SEC_IN_WEEK:
+		var weeks = int(t / SEC_IN_WEEK)
+		var rem_days = int(fmod(t, SEC_IN_WEEK) / SEC_IN_DAY)
+		if rem_days > 0:
+			return "%d Hafta %d Gün" % [weeks, rem_days]
+		return "%d Hafta" % weeks
+		
+	# 5. Gün (Days) - Kuiper kuşağı ve heliopoz (~170 - 1200 AU)
+	elif t >= SEC_IN_DAY:
+		var days = int(t / SEC_IN_DAY)
+		var rem_hours = int(fmod(t, SEC_IN_DAY) / SEC_IN_HOUR)
+		if rem_hours > 0:
+			return "%d Gün %d Saat" % [days, rem_hours]
+		return "%d Gün" % days
+		
+	# 6. Saat (Hours) - Dış Güneş Sistemi (~1.2 - 70 AU: Jüpiter, Satürn, Neptün, Plüton)
+	elif t >= SEC_IN_HOUR:
+		var hours = int(t / SEC_IN_HOUR)
+		var rem_minutes = int(fmod(t, SEC_IN_HOUR) / SEC_IN_MINUTE)
+		if rem_minutes > 0:
+			return "%d Saat %d Dakika" % [hours, rem_minutes]
+		return "%d Saat" % hours
+		
+	# 7. Dakika (Minutes) - İç Güneş Sistemi (~0.1 - 2.5 AU: Güneş, Merkür, Dünya, Mars)
+	elif t >= SEC_IN_MINUTE:
+		var minutes = int(t / SEC_IN_MINUTE)
+		var rem_seconds = int(fmod(t, SEC_IN_MINUTE))
+		if rem_seconds > 0:
+			return "%d Dakika %d Saniye" % [minutes, rem_seconds]
+		return "%d Dakika" % minutes
+		
+	# 8. Saniye (Seconds) - Gezegen-Uydu mesafesi (~300.000 - 18.000.000 km)
+	elif t >= 1.0:
+		return "%.1f Saniye" % t
+		
+	elif t >= 0.001:
+		return "%.3f Saniye" % t
+		
+	else:
+		return "< 0.001 Saniye"
+
+static func format_light_time(meters: float) -> String:
+	if meters <= 0.0:
+		return "0 Saniye"
+	return format_time_duration(meters / LIGHT_SPEED)
+
+static func format_travel_time(distance_meters: float, speed_mps: float) -> String:
+	if speed_mps <= 0.5:
+		return "Durağan (Hız Yok)"
+	if distance_meters <= 1.0:
+		return "Ulaşıldı (0 Sn)"
+	var t: float = distance_meters / speed_mps
+	return format_time_duration(t)
+
+func _format_light_time(meters: float) -> String:
+	return format_light_time(meters)
+
+func _format_travel_time(distance_meters: float, speed_mps: float) -> String:
+	return format_travel_time(distance_meters, speed_mps)
+
+func _format_metric_size(meters: float) -> String:
+	if meters >= 1000000000.0:
 		return "%.2f Milyon km" % (meters / 1000000000.0)
 	elif meters >= 1000000.0:
 		return "%.1f Bin km" % (meters / 1000000.0)
 	elif meters >= 1000.0:
-		return "%.2f km" % (meters / 1000.0)
+		return "%.1f km" % (meters / 1000.0)
+	else:
+		return "%.0f m" % meters
+
+func _format_distance(meters: float) -> String:
+	if meters <= 0.0:
+		return "0 m"
+		
+	var lt = format_light_time(meters)
+	
+	if meters >= 100.0 * LIGHT_YEAR:
+		return "%s (%.1f ly)" % [lt, meters / LIGHT_YEAR]
+	elif meters >= 0.01 * LIGHT_YEAR:
+		return "%s (%.2f ly)" % [lt, meters / LIGHT_YEAR]
+	elif meters >= 0.1 * ONE_AU:
+		return "%s (%.2f AU)" % [lt, meters / ONE_AU]
+	elif meters >= 1000000000.0:
+		return "%s (%.1f Milyon km)" % [lt, meters / 1000000000.0]
+	elif meters >= 1000000.0:
+		return "%s (%.0f Bin km)" % [lt, meters / 1000000.0]
+	elif meters >= 1000.0:
+		return "%.2f km (< 0.01 Sn)" % (meters / 1000.0)
 	else:
 		return "%.0f m" % meters
 
@@ -668,34 +1057,34 @@ func _format_distance(meters: float) -> String:
 # ─────────────────────────────────────────────────────────────────────────────
 func _build_starfield_card() -> void:
 	starfield_card = PanelContainer.new()
-	starfield_card.custom_minimum_size = Vector2(360, 480)
+	starfield_card.custom_minimum_size = Vector2(330, 0)
 	starfield_card.anchor_left = 0.02
-	starfield_card.anchor_top = 0.12
-	starfield_card.anchor_right = 0.28
-	starfield_card.anchor_bottom = 0.90
+	starfield_card.anchor_top = 0.08
+	starfield_card.anchor_right = 0.23
+	starfield_card.anchor_bottom = 0.72
 	starfield_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	starfield_card.add_theme_stylebox_override("panel", _create_glass_box(Color(0.2, 0.6, 0.9, 0.7), 10, Color(0.02, 0.04, 0.08, 0.93)))
 	starfield_card.visible = false
 	add_child(starfield_card)
 
 	var margin = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 8)
 	starfield_card.add_child(margin)
 
 	var vbox = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
+	vbox.add_theme_constant_override("separation", 4)
 	margin.add_child(vbox)
 
 	# 1. Sistem Adı
-	lbl_sf_system = _create_label("ALPHA CENTAURI SİSTEMİ", Color(0.35, 0.75, 1.0), 12, false)
+	lbl_sf_system = _create_label("ALPHA CENTAURI SİSTEMİ", Color(0.35, 0.75, 1.0), 11, false)
 	lbl_sf_system.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	vbox.add_child(lbl_sf_system)
 
 	# 2. Cisim Adı (Büyük Başlık)
-	lbl_sf_name = _create_label("JEMISON", Color(0.95, 0.98, 1.0), 22, true)
+	lbl_sf_name = _create_label("JEMISON", Color(0.95, 0.98, 1.0), 18, true)
 	lbl_sf_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	vbox.add_child(lbl_sf_name)
 
@@ -732,7 +1121,9 @@ func _build_starfield_card() -> void:
 		["SU", "Biyolojik Güvenli"],
 		["BİYOM", "Ormanlar & Okyanuslar"],
 		["YARIÇAP", "6.371 km"],
-		["MESAFE", "1.00 AU"]
+		["MESAFE", "1.00 AU"],
+		["KAT ETME SÜRESİ", "Durağan"],
+		["IŞIK SÜRESİ", "8 Dakika 19 Saniye"]
 	]
 	for r in rows:
 		var row_box = HBoxContainer.new()
@@ -741,7 +1132,7 @@ func _build_starfield_card() -> void:
 		lbl_key.custom_minimum_size = Vector2(95, 0)
 		row_box.add_child(lbl_key)
 
-		var lbl_val = _create_label(r[1], Color(0.9, 0.95, 1.0), 11, true)
+		var lbl_val = _create_label(r[1], Color(0.9, 0.95, 1.0), 11, true, true)
 		lbl_val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl_val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row_box.add_child(lbl_val)
@@ -773,7 +1164,7 @@ func _build_starfield_card() -> void:
 
 	var h_g = _create_badge_label("[G] SEYAHAT", Color(0.1, 1.0, 0.6))
 	hints_box.add_child(h_g)
-	var h_c = _create_badge_label("[C] BOŞA DÜŞÜR", Color(1.0, 0.45, 0.35))
+	var h_c = _create_badge_label("[C] KAPAT", Color(1.0, 0.45, 0.35))
 	hints_box.add_child(h_c)
 	var h_l = _create_badge_label("[L] İNİŞ", Color(0.0, 0.9, 1.0))
 	hints_box.add_child(h_l)
@@ -849,28 +1240,26 @@ func _draw_mini_system_map() -> void:
 			mini_system_map.draw_arc(p_pos, 7.5, 0, TAU, 16, Color(0.0, 1.0, 0.7, 0.9), 1.5)
 
 func _update_starfield_card(main_node: Node3D) -> void:
+	target_card.visible = false # Çakışmayı önlemek için sağdaki mükerrer hedef kartı tamamen gizlenir
+
+	# Eğer yüzeydeysek ve seçili hedef iniş yaptığımız cismin kendisiyse, kartı gizle
+	if main_node.is_landed and main_node.landed_body != null:
+		if main_node.current_target_index >= 0 and main_node.current_target_index < main_node.universe.size():
+			if main_node.universe[main_node.current_target_index] == main_node.landed_body:
+				starfield_card.visible = false
+				return
+
 	if main_node.targeted_star_data != null:
 		var info = _get_stardata_survey_info(main_node.targeted_star_data, main_node)
 		_apply_survey_info_to_card(info)
 		starfield_card.visible = true
-		target_card.visible = true
-		lbl_target_name.text = "HEDEF: %s" % info["name"]
-		lbl_target_type.text = "TİP: %s" % info["type"]
-		lbl_target_dist.text = "MESAFE: %s" % info["dist"]
-		lbl_target_details.text = "YARIÇAP: %s | %s" % [info["radius"], info["temp"]]
 	elif main_node.current_target_index >= 0 and main_node.current_target_index < main_node.universe.size():
 		var b = main_node.universe[main_node.current_target_index]
 		var info = _get_body_survey_info(b, main_node)
 		_apply_survey_info_to_card(info)
 		starfield_card.visible = true
-		target_card.visible = true
-		lbl_target_name.text = "HEDEF: %s" % info["name"]
-		lbl_target_type.text = "TİP: %s" % info["type"]
-		lbl_target_dist.text = "MESAFE: %s" % info["dist"]
-		lbl_target_details.text = "YARIÇAP: %s | %s" % [info["radius"], info["gravity"]]
 	else:
 		starfield_card.visible = false
-		target_card.visible = false
 
 func _apply_survey_info_to_card(info: Dictionary) -> void:
 	lbl_sf_system.text = info["system"]
@@ -896,6 +1285,15 @@ func _apply_survey_info_to_card(info: Dictionary) -> void:
 		sf_row_labels["YARIÇAP"].text = info["radius"]
 	if sf_row_labels.has("MESAFE"):
 		sf_row_labels["MESAFE"].text = info["dist"]
+	if sf_row_labels.has("KAT ETME SÜRESİ"):
+		var tt = info.get("travel_time", "Durağan")
+		sf_row_labels["KAT ETME SÜRESİ"].text = tt
+		if tt.begins_with("Durağan"):
+			sf_row_labels["KAT ETME SÜRESİ"].modulate = Color(0.65, 0.7, 0.8)
+		else:
+			sf_row_labels["KAT ETME SÜRESİ"].modulate = Color(0.2, 1.0, 0.5)
+	if sf_row_labels.has("IŞIK SÜRESİ"):
+		sf_row_labels["IŞIK SÜRESİ"].text = info.get("light_time", "0 Saniye")
 
 	# Kaynak kutucuklarını doldur
 	for child in sf_resources_box.get_children():
@@ -916,8 +1314,16 @@ func _get_body_survey_info(body: CelestialBody, main_node: Node3D) -> Dictionary
 	var survey_pct = 60 + (hash_val % 41)
 	info["survey_pct"] = survey_pct
 
-	info["dist"] = _format_distance(body.real_position.length())
-	info["radius"] = _format_distance(body.real_radius)
+	var dist_m = body.real_position.length()
+	var current_spd = 0.0
+	if main_node.camera != null:
+		current_spd = float(main_node.camera.current_speed)
+	if main_node.get("flight_speed_mps") != null and float(main_node.flight_speed_mps) > 0.1:
+		current_spd = float(main_node.flight_speed_mps)
+	info["dist"] = _format_distance(dist_m)
+	info["light_time"] = _format_light_time(dist_m)
+	info["travel_time"] = format_travel_time(dist_m, current_spd)
+	info["radius"] = _format_metric_size(body.real_radius)
 
 	if body.type == "STAR":
 		info["type"] = "Yıldız (%s)" % (body.spectral_type if body.spectral_type != "" else "G-Tipi")
@@ -1057,8 +1463,15 @@ func _get_stardata_survey_info(star_data, main_node: Node3D) -> Dictionary:
 	var gal_pos = main_node.get_player_galactic_position()
 	var star_pos = Vector3(star_data.stellar_x, star_data.stellar_y, star_data.stellar_z)
 	var dist = (star_pos - gal_pos).length()
+	var current_spd = 0.0
+	if main_node.camera != null:
+		current_spd = float(main_node.camera.current_speed)
+	if main_node.get("flight_speed_mps") != null and float(main_node.flight_speed_mps) > 0.1:
+		current_spd = float(main_node.flight_speed_mps)
 	info["dist"] = _format_distance(dist)
-	info["radius"] = _format_distance(star_data.radius)
+	info["light_time"] = _format_light_time(dist)
+	info["travel_time"] = format_travel_time(dist, current_spd)
+	info["radius"] = _format_metric_size(star_data.radius)
 	info["type"] = "Galaktik Yıldız (%s)" % star_data.spectral_type
 	info["gravity"] = "25.0+ G (Kütle Çekim)"
 	info["temp"] = "Spektral Sınıf: %s" % star_data.spectral_type

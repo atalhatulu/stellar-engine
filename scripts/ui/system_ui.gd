@@ -225,6 +225,8 @@ static func update_ui(main_node: Node3D, closest_name: String, closest_dist: flo
 		telemetry_text += " • İsim: [color=#ffcc00]%s[/color] (Galaktik Yıldız)\n" % s_data.name
 		telemetry_text += " • Spektral Tip: [color=#00e5ff]%s[/color]\n" % s_data.spectral_type
 		telemetry_text += " • Galaktik Mesafe: [color=#ffcc00]%s[/color]\n" % format_space_distance(dist_to_star)
+		telemetry_text += " • Işık Seyahati: [color=#00e5ff]%s[/color]\n" % format_light_time(dist_to_star)
+		telemetry_text += " • Kat Etme Süresi (ETA): [color=#00ff66]%s[/color]\n" % format_travel_time(dist_to_star, current_speed)
 		if main_node.get("is_interstellar_autopilot") == true:
 			telemetry_text += " • Eylemler: [color=#ff00ff][G] HİPER HIZLANDIR (ÇİFT G)[/color] | [WASD] İptal | [C] Odaklan\n"
 		else:
@@ -236,6 +238,8 @@ static func update_ui(main_node: Node3D, closest_name: String, closest_dist: flo
 		telemetry_text += " • İsim: [color=#ffcc00]%s[/color]\n" % target.name
 		telemetry_text += " • Tip: [color=#00e5ff]%s[/color]\n" % target.type
 		telemetry_text += " • Mesafe: [color=#ffcc00]%s[/color]\n" % format_space_distance(dist_to_target)
+		telemetry_text += " • Işık Seyahati: [color=#00e5ff]%s[/color]\n" % format_light_time(dist_to_target)
+		telemetry_text += " • Kat Etme Süresi (ETA): [color=#00ff66]%s[/color]\n" % format_travel_time(dist_to_target, current_speed)
 		
 		if main_node.is_autopilot_active:
 			telemetry_text += " • Eylemler: [color=#ff00ff][G] HİPER HIZLANDIR (ÇİFT G)[/color] | [WASD] İptal | [C] Odaklan\n"
@@ -283,6 +287,12 @@ static func update_ui(main_node: Node3D, closest_name: String, closest_dist: flo
 		
 	main_node.ui_label.text = telemetry_text
 
+static func format_light_time(meters: float) -> String:
+	return SystemHUD.format_light_time(meters)
+
+static func format_travel_time(meters: float, speed: float) -> String:
+	return SystemHUD.format_travel_time(meters, speed)
+
 static func format_space_distance(meters: float) -> String:
 	const ONE_AU: float = 149597870700.0
 	const TRANSITION_AU: float = 0.1 * ONE_AU
@@ -290,21 +300,23 @@ static func format_space_distance(meters: float) -> String:
 	const ONE_THOUSAND_KM: float = 1000000.0
 	const ONE_KM: float = 1000.0
 	
-	if meters >= 0.01 * LIGHT_YEAR:
-		var ly_val = meters / LIGHT_YEAR
-		return "%.2f Işık Yılı" % ly_val
+	if meters <= 0.0:
+		return "0 m"
+		
+	var lt = format_light_time(meters)
+	
+	if meters >= 100.0 * LIGHT_YEAR:
+		return "%s (%.1f ly)" % [lt, meters / LIGHT_YEAR]
+	elif meters >= 0.01 * LIGHT_YEAR:
+		return "%s (%.2f ly)" % [lt, meters / LIGHT_YEAR]
 	elif meters >= TRANSITION_AU:
-		var au_val = meters / ONE_AU
-		return "%.2f AU" % au_val
+		return "%s (%.2f AU)" % [lt, meters / ONE_AU]
 	elif meters >= ONE_MILLION_KM:
-		var million_val = meters / ONE_MILLION_KM
-		return "%.2f Milyon km" % million_val
+		return "%s (%.1f Milyon km)" % [lt, meters / ONE_MILLION_KM]
 	elif meters >= ONE_THOUSAND_KM:
-		var thousand_val = meters / ONE_THOUSAND_KM
-		return "%.1f Bin km" % thousand_val
+		return "%s (%.0f Bin km)" % [lt, meters / ONE_THOUSAND_KM]
 	elif meters >= ONE_KM:
-		var km_val = meters / ONE_KM
-		return "%.2f km" % km_val
+		return "%.2f km (< 0.01 Sn)" % (meters / ONE_KM)
 	else:
 		return "%.0f m" % meters
 

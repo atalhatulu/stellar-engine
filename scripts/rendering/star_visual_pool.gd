@@ -208,7 +208,7 @@ func rebind(sector_manager, player_gal_pos: Vector3, cam_forward: Vector3 = Vect
 
 
 # Slotlardaki yıldızların 3D MultiMesh transformlarını ve renklerini günceller
-func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: float) -> void:
+func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: float, cam_forward: Vector3 = Vector3.ZERO, surface_up: Vector3 = Vector3.ZERO) -> void:
 	_render_player_pos = player_gal_pos
 	if not is_pool_visible or multimesh == null:
 		return
@@ -216,6 +216,7 @@ func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: flo
 	var start_usec = Time.get_ticks_usec()
 	var tan_half_fov = tan(deg_to_rad(fov * 0.5))
 	var safe_vp_h = max(viewport_height, 600.0)
+	var cull_cos = cos(deg_to_rad(fov * 0.5 + 32.0)) if cam_forward != Vector3.ZERO else -1.0
 	
 	for i in range(pool_capacity):
 		var slot = slots[i]
@@ -230,6 +231,19 @@ func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: flo
 		var rel_pos_ly = star_pos_ly - player_pos_ly
 		var dist_ly = rel_pos_ly.length()
 		var dir = rel_pos_ly / max(dist_ly, 0.00001)
+		
+		# Gezegen yüzeyindeyken ufkun ve yerin altında kalan yıldızları tamamen gizle
+		if surface_up != Vector3.ZERO and dir.dot(surface_up) < 0.05:
+			multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ZERO), Vector3(0, -99999999, 0)))
+			multimesh.set_instance_color(i, Color(0, 0, 0, 0))
+			continue
+
+		# Kamera arkasındaki ve FOV dışındaki yıldızları GPU'da çizilmeyecek şekilde gizle
+		if cull_cos > -1.0 and cam_forward.dot(dir) < cull_cos:
+			multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ZERO), Vector3(0, -99999999, 0)))
+			multimesh.set_instance_color(i, Color(0, 0, 0, 0))
+			continue
+			
 		var dist = dist_ly * LIGHT_YEAR
 		slot.distance = dist
 		
@@ -307,7 +321,7 @@ func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: flo
 
 
 # Ana oyun döngüsünden çağrılan birleşik yöneticisi
-func update_pool(delta: float, sector_manager, player_gal_pos: Vector3, cam_forward: Vector3, fov: float, viewport_height: float, sector_changed: bool, p_active_star_id: String = "", p_pinned_star_data = null) -> void:
+func update_pool(delta: float, sector_manager, player_gal_pos: Vector3, cam_forward: Vector3, fov: float, viewport_height: float, sector_changed: bool, p_active_star_id: String = "", p_pinned_star_data = null, surface_up: Vector3 = Vector3.ZERO) -> void:
 	if p_active_star_id != "":
 		active_star_id = p_active_star_id
 	if p_pinned_star_data != null:
@@ -330,7 +344,7 @@ func update_pool(delta: float, sector_manager, player_gal_pos: Vector3, cam_forw
 		rebind(sector_manager, player_gal_pos, cam_forward, active_star_id, pinned_star_data)
 		
 	# Her kare aktif slotların MultiMesh transformlarını güncelle
-	update_transforms(player_gal_pos, fov, viewport_height)
+	update_transforms(player_gal_pos, fov, viewport_height, cam_forward, surface_up)
 
 
 # Ekran merkezine (crosshair) en yakın görsel havuz yıldızını bulur

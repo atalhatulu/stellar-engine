@@ -109,9 +109,12 @@ func _process(delta):
 					p.start_eva_mode()
 
 	if astronaut_visual != null:
-		var in_eva: bool = get_parent().get("is_eva_active") == true
+		var parent_node = get_parent()
+		var in_eva: bool = parent_node != null and parent_node.get("is_eva_active") == true
 		astronaut_visual.visible = in_eva and eva_third_person
-		astronaut_visual.animate(delta, get_parent().is_jetpack_active, get_parent().is_jetpack_boosting)
+		var jp_active: bool = parent_node != null and parent_node.get("is_jetpack_active") == true
+		var jp_boost: bool = parent_node != null and parent_node.get("is_jetpack_boosting") == true
+		astronaut_visual.animate(delta, jp_active, jp_boost)
 	
 	# Uçuş Kontrolleri ve İtici Dinamikleri
 	# SADECE oyuncu koltukta otururken veya 3. şahısta gemiyi sürerken gemi motorları çalışır!
@@ -206,6 +209,7 @@ func _input(event):
 			rot_y -= event.relative.x * mouse_sensitivity
 			rot_x -= event.relative.y * mouse_sensitivity
 			rot_x = clamp(rot_x, -PI / 2.2, PI / 2.2)
+			rot_z = 0.0
 			var surface_basis = get_parent().get("landed_ship_basis") if get_parent() != null and get_parent().get("landed_ship_basis") is Basis else Basis.IDENTITY
 			transform.basis = surface_basis * Basis.from_euler(Vector3(rot_x, rot_y, 0.0))
 		else:
@@ -229,11 +233,22 @@ func _input(event):
 		if spacecraft != null and spacecraft.current_view_mode == Spacecraft.CameraViewMode.THIRD_PERSON:
 			in_third_person = true
 			
+		var is_landed = false
+		if get_parent() and get_parent().get("is_landed"):
+			is_landed = true
+
 		if in_third_person and not event.shift_pressed:
 			if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 				third_person_distance = clampf(third_person_distance - 1.5, MIN_THIRD_PERSON_DIST, MAX_THIRD_PERSON_DIST)
 			elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				third_person_distance = clampf(third_person_distance + 1.5, MIN_THIRD_PERSON_DIST, MAX_THIRD_PERSON_DIST)
+		elif is_landed:
+			var p = get_parent()
+			if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+				p.walk_speed_index = mini(p.walk_speed_index + 1, p.WALK_SPEED_PRESETS.size() - 1)
+			elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				p.walk_speed_index = maxi(p.walk_speed_index - 1, 0)
+			get_viewport().set_input_as_handled()
 		else:
 			if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 				speed_multiplier_index = min(speed_multiplier_index + 1, speed_presets.size() - 1)
