@@ -11,6 +11,7 @@ var is_lod: bool = false
 var visual_mesh: MeshInstance3D
 var atmosphere_mesh: MeshInstance3D # Atmosfer efekti için mesh
 var orbit_line_mesh: MeshInstance3D # Yörünge çizgisi efekti için mesh
+var orbit_sample_points: PackedVector3Array = PackedVector3Array() # 3B uzaydaki yörünge örnek noktaları
 var lod_sprite: Sprite3D # Yıldızların uzaktaki 2D görünümü için Sprite3D
 var noise_albedo: NoiseTexture2D
 var noise_normal: NoiseTexture2D

@@ -800,24 +800,8 @@ static func spawn_body_graphics(main_node: Node3D, body: CelestialBody) -> void:
 	main_node.add_child(sprite_instance)
 	body.lod_sprite = sprite_instance
 	
-	if body.has_atmosphere:
-		var atmos_instance = MeshInstance3D.new()
-		var atmos_mesh = SphereMesh.new()
-		atmos_mesh.radius = 1.06
-		atmos_mesh.height = 2.12
-		atmos_instance.mesh = atmos_mesh
-		atmos_instance.extra_cull_margin = 2000000.0
-		
-		var atmos_mat = ShaderMaterial.new()
-		atmos_mat.shader = ATMOSPHERE_SHADER
-		
-		atmos_mat.set_shader_parameter("atmosphere_color", body.atmosphere_color)
-		atmos_mat.set_shader_parameter("glow_intensity", 2.2)
-		atmos_mat.set_shader_parameter("fresnel_power", 4.0)
-		
-		atmos_instance.material_override = atmos_mat
-		main_node.add_child(atmos_instance)
-		body.atmosphere_mesh = atmos_instance
+	# Atmosfer alanı ve hale küresi kullanıcının talebi doğrultusunda tamamen kaldırıldı
+	body.atmosphere_mesh = null
 		
 	# Yörünge çizgisi ekle
 	if body.type != "STAR":
@@ -827,33 +811,29 @@ static func spawn_orbit_line(main_node: Node3D, body: CelestialBody) -> void:
 	if body.parent_body == null or is_instance_valid(body.orbit_line_mesh):
 		return
 		
-	var orbit_instance = MeshInstance3D.new()
-	var immediate_mesh = ImmediateMesh.new()
-	
-	immediate_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-	var steps = 64
-	var color = Color(0.0, 0.8, 1.0, 0.25) # Gezegen yörüngesi için yarı saydam turkuaz
-	if body.type == "MOON":
-		steps = 32
-		color = Color(0.8, 0.8, 0.8, 0.15) # Uydu yörüngesi için yarı saydam gri
-		
+	var steps = 64 if body.type != "MOON" else 32
+	var pts = PackedVector3Array()
+	pts.resize(steps + 1)
 	for i in range(steps + 1):
 		var theta = (float(i) / steps) * TAU
 		var pos = Vector3(cos(theta), 0.0, sin(theta)) * body.orbit_radius
 		if body.orbit_inclination != 0.0:
 			pos = pos.rotated(Vector3.FORWARD, body.orbit_inclination)
-		immediate_mesh.surface_set_color(color)
-		immediate_mesh.surface_add_vertex(pos)
-	immediate_mesh.surface_end()
+		pts[i] = pos
+	body.orbit_sample_points = pts
 	
-	orbit_instance.mesh = immediate_mesh
+	var orbit_instance = MeshInstance3D.new()
+	orbit_instance.mesh = ImmediateMesh.new()
 	orbit_instance.extra_cull_margin = 10000000.0
+	orbit_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	
 	var mat = StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.use_point_size = true
-	mat.albedo_color = color
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_color = Color.WHITE
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	orbit_instance.material_override = mat
 	
 	main_node.add_child(orbit_instance)
@@ -863,6 +843,7 @@ static func despawn_orbit_line(body: CelestialBody) -> void:
 	if is_instance_valid(body.orbit_line_mesh):
 		body.orbit_line_mesh.queue_free()
 		body.orbit_line_mesh = null
+	body.orbit_sample_points.clear()
 
 static func despawn_body_graphics(body: CelestialBody) -> void:
 	if body.type == "STAR":
