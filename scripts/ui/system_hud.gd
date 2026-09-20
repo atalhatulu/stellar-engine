@@ -12,6 +12,7 @@ extends Control
 const LIGHT_SPEED: float = 299792458.0
 const ONE_AU: float = 149597870700.0
 const LIGHT_YEAR: float = 9460730472580800.0
+const PlanetSphere = preload("res://scripts/rendering/planet_chunk_sphere.gd")
 
 # Üst Bar (Navigasyon & Sistem)
 var top_bar: PanelContainer
@@ -235,7 +236,7 @@ func _build_hud_layout() -> void:
 	fuel_box.add_child(bar_fuel)
 	player_vbox.add_child(fuel_box)
 	
-	lbl_headlamp_status = _create_label("FENER [L]: AÇIK", Color(0.1, 0.95, 0.6), 12, false)
+	lbl_headlamp_status = _create_label("FENER [H]: AÇIK", Color(0.1, 0.95, 0.6), 12, false)
 	player_vbox.add_child(lbl_headlamp_status)
 	
 	lbl_player_speed = _create_label("EVA HIZI: 0.0 m/s", Color(0.85, 0.9, 1.0), 12, false)
@@ -346,10 +347,10 @@ func _build_hud_layout() -> void:
 
 func _build_approach_card() -> void:
 	approach_card = PanelContainer.new()
-	approach_card.anchor_left = 0.385
-	approach_card.anchor_right = 0.615
+	approach_card.anchor_left = 0.025
+	approach_card.anchor_right = 0.275
 	approach_card.anchor_top = 0.085
-	approach_card.anchor_bottom = 0.305
+	approach_card.anchor_bottom = 0.325
 	approach_card.custom_minimum_size = Vector2(420, 0)
 	approach_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	approach_card.add_theme_stylebox_override("panel", _create_glass_box(
@@ -693,7 +694,7 @@ func update_hud(main_node: Node3D) -> void:
 	bar_fuel.value = fuel_val
 	
 	var lamp_on = cam.headlamp.visible if (cam != null and cam.get("headlamp") != null) else false
-	lbl_headlamp_status.text = "FENER [L]: %s" % ("AÇIK" if lamp_on else "KAPALI")
+	lbl_headlamp_status.text = "FENER [H]: %s" % ("AÇIK" if lamp_on else "KAPALI")
 	lbl_headlamp_status.modulate = Color(0.1, 0.95, 0.6) if lamp_on else Color(0.6, 0.65, 0.7)
 	
 	if main_node.get("is_eva_active") == true:
@@ -820,7 +821,12 @@ func _update_approach_card(main_node: Node3D, sc: Spacecraft) -> void:
 		return
 
 	var center_distance: float = body.real_position.length()
-	var altitude: float = maxf(center_distance - body.real_radius, 0.0)
+	var surface_direction: Vector3 = (-body.real_position).normalized() if center_distance > 1.0 else Vector3.UP
+	var terrain_height := 0.0
+	if body.noise_albedo != null and body.noise_albedo.noise != null:
+		terrain_height = PlanetSphere.sample_terrain_height_static(
+			body.noise_albedo.noise, surface_direction, body.real_radius) * body.real_radius
+	var altitude: float = maxf(center_distance - (body.real_radius + terrain_height), 0.0)
 	var rel_radius: float = center_distance / maxf(body.real_radius, 1.0)
 	var flight_speed: float = absf(float(main_node.get("flight_speed_mps")))
 	var radial_speed := 0.0
@@ -924,8 +930,10 @@ func _update_lod_debug_card(main_node: Node3D) -> void:
 			var total = stats.get("total_chunks", 24)
 			var counts: Dictionary = stats.get("lod_counts", {})
 			lbl_lod_grid_status.text = "Tüm Gezegen Aktif: %d Parça | Küresel 360°" % total
-			lbl_lod_breakdown.text = "L0: %d [Kırmızı]  L1: %d [Turuncu]  L2: %d [Sarı]\nL3: %d [Mavi]     L4: %d [Yeşil]    L5: %d [Turkuaz]" % [
-				counts.get(0, 0), counts.get(1, 0), counts.get(2, 0), counts.get(3, 0), counts.get(4, 0), counts.get(5, 0)
+			lbl_lod_breakdown.text = "L0:%d  L1:%d  L2:%d  L3:%d\nL4:%d  L5:%d  L6:%d  L7:%d\nL8:%d  L9:%d  L10:%d  L11:%d" % [
+				counts.get(0, 0), counts.get(1, 0), counts.get(2, 0), counts.get(3, 0),
+				counts.get(4, 0), counts.get(5, 0), counts.get(6, 0), counts.get(7, 0),
+				counts.get(8, 0), counts.get(9, 0), counts.get(10, 0), counts.get(11, 0)
 			]
 			lbl_lod_perf.text = "Gezegen Yarıçapı: %.1f km" % (stats.get("body_radius", 6000000.0) / 1000.0)
 		else:
@@ -961,7 +969,7 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		_add_badge("[WASD] YÜRÜ" if main_node.is_landed else "[WASD] İTİCİ", Color(0.0, 0.85, 1.0))
 		_add_badge("[SPACE] ZIPLA / JETPACK", Color(0.0, 0.85, 1.0))
 		_add_badge("[SHIFT] BOOST", Color(1.0, 0.6, 0.1))
-		_add_badge("[F] KAMERA  [L] FENER", Color(0.5, 0.8, 1.0))
+		_add_badge("[F] KAMERA  [H] FENER", Color(0.5, 0.8, 1.0))
 		return
 		
 	if sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
@@ -978,13 +986,27 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 	# Kokpit Sürüşü veya 3. Şahıs
 	if main_node.is_interstellar_autopilot or main_node.is_autopilot_active:
 		if main_node.get("is_landing_autopilot") == true:
-			_add_badge("İNİŞ OTOPİLOTU", Color(0.1, 1.0, 0.5))
+			_add_badge("İNİŞ ALÇALMASI AKTİF", Color(0.1, 1.0, 0.5))
+			_add_badge("[WASD] İPTAL ET", Color(1.0, 0.4, 0.3))
 		else:
 			_add_badge("[G] HİPER HIZLANDIR", Color(1.0, 0.2, 0.9))
-		_add_badge("[WASD] İPTAL ET", Color(1.0, 0.4, 0.3))
+			_add_badge("[WASD] İPTAL ET", Color(1.0, 0.4, 0.3))
 		_add_badge("[F] KAMERA", Color(0.5, 0.8, 1.0))
+	elif main_node.get("is_landed") == true:
+		_add_badge("[G / L] YÖRÜNGEYE KALKIŞ", Color(0.1, 1.0, 0.5))
+		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
+			_add_badge("[E] KOLTUKTAN KALK", Color(0.0, 0.9, 1.0))
+		_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
 	else:
-		if main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
+		var near_planet_for_landing: bool = false
+		if main_node.get("active_system_bodies") != null:
+			for b in main_node.active_system_bodies:
+				if b.type != "STAR" and b.real_position.length() <= b.real_radius * 3.5:
+					near_planet_for_landing = true
+					break
+		if near_planet_for_landing:
+			_add_badge("[G / L] GEZEGENE İNİŞ YAP", Color(0.1, 1.0, 0.5))
+		elif main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
 			_add_badge("[G] OTOPİLOT", Color(0.1, 1.0, 0.5))
 			_add_badge("[C] HEDEF KAPAT", Color(1.0, 0.45, 0.35))
 		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):

@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
+render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
 // ── Altitude & Slope Based Procedural Planetary Terrain Shader ─────────────
 // Generates natural biomes, sharp rocky cliffs, mountain ridges, and valley floors.

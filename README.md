@@ -18,7 +18,7 @@ Stellar Engine, Godot 4 (3D) üzerinde geliştirilmiş; prosedürel yıldız sis
   - Yüzeye yaklaşırken kesintisiz iniş ve detay artışı.
   - Ekvator / ılıman enlem iniş kılavuzu.
   - Çarpışma ve zemin yüksekliği hesaplama optimizasyonu.
-  - **LOD Debug Modu (F8)**: Parçaları LOD seviyelerine göre (L0: Yeşil, L1: Mavi, L2: Sarı, L3: Turuncu, L4: Kırmızı) renklendirme.
+  - **LOD Telemetrisi (I)**: LOD 0–11 parça dağılımını ve aktif arazi durumunu gösterir. **V** parçaları seviyelerine göre renklendirir.
 - **Gelişmiş HUD ve Telemetri**:
   - Cam efektli hedef kilitleme, analiz ve seyahat paneli.
   - Gerçek zamanlı LOD parça telemetri kartı (aktif parça sayısı, grid konumu, kuyruk ve üretim süreleri).
@@ -36,11 +36,14 @@ Stellar Engine, Godot 4 (3D) üzerinde geliştirilmiş; prosedürel yıldız sis
 | **Mouse Sağ Tık + Sürükle** | Kamera serbest bakış açısı |
 | **Mouse Sol Tık / C** | Hedef gökcismine odaklan / Analiz et / Seçimi temizle |
 | **Shift + Sol Tık** | Seçili gökcismine otopilot ile seyahat |
-| **E** | Gezegene iniş yap / EVA moduna geç / Gemiye geri bin |
+| **E** | Koltuk, hava kilidi ve gemiye binme etkileşimi |
+| **L** | Gezegene iniş yap / yüzeyden kalk |
+| **H** | Kask fenerini aç/kapat |
 | **F** | Feneri aç / kapat (EVA) |
 | **Space / Ctrl** | Dikey eksende yükselme / alçalma (Uzay uçuşu) |
 | **Shift (Basılı)** | Hızlı itki / Koşma |
-| **F8** | Arazi LOD parça renklendirme (Debug modu) |
+| **I** | Arazi LOD telemetri kartını aç/kapat |
+| **V** | Arazi parçalarını LOD seviyesine göre renklendir |
 | **M** | Yıldız haritası modunu aç / kapat |
 
 ---

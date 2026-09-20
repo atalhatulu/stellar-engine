@@ -38,7 +38,9 @@ func run() -> void:
 	scene._clamp_player_above_planet_surfaces()
 
 	var actual_dist = (scene.virtual_player_position - planet_abs_pos).length()
-	check(actual_dist >= test_planet.real_radius + 14.9, "İrtifa koruması oyuncunun gezegenin içine girmesini engellemeli ve yüzey üstünde tutmalı")
+	var body_noise = test_planet.noise_albedo.noise if (test_planet.noise_albedo and test_planet.noise_albedo.noise) else null
+	var expected_surface = test_planet.real_radius * (1.0 + PlanetChunkSphere.sample_terrain_height_static(body_noise, Vector3.UP, test_planet.real_radius))
+	check(actual_dist >= expected_surface + 14.9, "İrtifa koruması oyuncunun gezegenin içine girmesini engellemeli ve yüzey üstünde tutmalı")
 	check(scene.player_velocity.y >= 0.0, "Yüzeye doğru olan içe dalış hızı sıfırlanmalı/sönümlenmeli")
 
 	# Test 2: PlanetChunkSphere Çoklu Çözünürlük ve Çift Taraflı Render Testi

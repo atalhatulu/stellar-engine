@@ -182,9 +182,9 @@ func _input(event):
 			else:
 				is_camera_disabled = true
 			
-	# One owner for E: seat, door, boarding or landing. Never trigger both.
+	# E yalnızca koltuk, kapı ve gemiye binme etkileşimidir.
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
-		get_parent()._handle_landing_key()
+		get_parent()._handle_interaction_key()
 		get_viewport().set_input_as_handled()
 		return
 
@@ -264,7 +264,7 @@ func _input(event):
 			elif spacecraft != null and spacecraft.is_seated_in_cockpit:
 				var mode_str = spacecraft.cycle_camera_mode()
 				print("KAMERA MODU: ", mode_str)
-		elif event.keycode == KEY_L:
+		elif event.keycode == KEY_H:
 			if headlamp != null:
 				headlamp.visible = !headlamp.visible
 				print("OUTER WILDS KASK FENERİ: ", "AÇIK" if headlamp.visible else "KAPALI")

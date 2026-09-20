@@ -16,8 +16,10 @@ const MAX_LEVEL: int = 11
 const CHILD_NLON: int = 2
 const CHILD_NLAT: int = 2
 
-# High-resolution vertex grid per chunk across LOD levels (Level 10-11: 64x64 -> ~27-55m spacing)
-const SUBDIV_LEVELS: Array = [24, 32, 40, 48, 56, 56, 56, 56, 56, 56, 64, 64]
+# Quadtree her seviyede doğrusal çözünürlüğü zaten iki katına çıkarır. Derin
+# seviyelerde 56/64 kullanmak görünür fayda sağlamadan üretim ve çizim yükünü
+# katlıyordu. 32x32, büyük gezegenlerde LOD 11'de yaklaşık 55 m aralık sağlar.
+const SUBDIV_LEVELS: Array = [24, 28, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
 
 # Distance thresholds relative to planet radius (dist / radius)
 # Sadece oyuncunun hemen altındaki yerel parçalar derinleşir; gezegenin geri kalanı düşük LOD'da kalır.
@@ -55,17 +57,29 @@ const LEVEL_MERGE_THRESHOLDS: Array = [
 static var elevation_scale_km: float = 12.0
 static var debug_elevation_override_km: float = 0.0
 
+static func get_elevation_scale_km(body_radius: float) -> float:
+	if debug_elevation_override_km > 0.0:
+		return debug_elevation_override_km
+	# Küçük test gövdesinde 12 km korunur. Ana oyundaki binlerce km
+	# yarıçaplı gezegenlerde aynı değer silüette görünmez kaldığından ölçek
+	# yarıçapın %0.8'ine kadar çıkar, fakat 32 km'de güvenli biçimde durur.
+	return clampf(maxf(elevation_scale_km, body_radius * 0.000008), elevation_scale_km, 32.0)
+
 var _noise: FastNoiseLite = null
 var _terrain_material: Material = null
 var _border_material: Material = null
 var _border_visible: bool = false
 var _builds_this_frame := 0
-const MAX_BUILDS_PER_FRAME := 2
+# Chunk meshleri ana thread'de oluşturuluyor. Kare başına tek büyük mesh,
+# derin LOD geçişlerinde iki pahalı üretimin aynı kareye binmesini engeller.
+const MAX_BUILDS_PER_FRAME := 1
 var _is_active: bool = false
 var _body_radius: float = 1.0
 var _all_chunks: Dictionary = {}
 var _root_keys: Array[String] = []
 var _all_borders: Array[MeshInstance3D] = []
+var _visibility_alpha: float = 1.0
+var _last_focus_direction: Vector3 = Vector3.ZERO
 
 
 func initialize(p_noise: FastNoiseLite, body_radius: float) -> void:
@@ -140,7 +154,8 @@ func get_lod_stats() -> Dictionary:
 		"lod_counts": counts,
 		"is_active": _is_active,
 		"body_radius": _body_radius,
-		"debug_color_mode": debug_color_mode
+		"debug_color_mode": debug_color_mode,
+		"focus_direction": _last_focus_direction
 	}
 
 func _refresh_all_materials() -> void:
@@ -171,6 +186,21 @@ func set_borders_visible(v: bool) -> void:
 		if is_instance_valid(b):
 			b.visible = v
 
+
+func set_visibility_alpha(value: float) -> void:
+	_visibility_alpha = clampf(value, 0.0, 1.0)
+	var transparent := 1.0 - _visibility_alpha
+	for cd in _all_chunks.values():
+		if is_instance_valid(cd.mesh):
+			cd.mesh.transparency = transparent
+	for border in _all_borders:
+		if is_instance_valid(border):
+			border.transparency = transparent
+
+
+func get_visibility_alpha() -> float:
+	return _visibility_alpha
+
 func clear() -> void:
 	for key in _all_chunks:
 		var cd = _all_chunks[key]
@@ -186,7 +216,8 @@ func clear() -> void:
 
 # ── Update per frame ────────────────────────────────────────────────────────
 func update(origin_offset: Vector3, mesh_pos: Vector3, visual_radius: float,
-			real_cam: Vector3, real_center: Vector3, cam_forward: Vector3 = Vector3.ZERO) -> void:
+			real_cam: Vector3, real_center: Vector3, cam_forward: Vector3 = Vector3.ZERO,
+			focus_direction_override: Vector3 = Vector3.ZERO) -> void:
 	if not _is_active:
 		return
 	_builds_this_frame = 0
@@ -196,32 +227,57 @@ func update(origin_offset: Vector3, mesh_pos: Vector3, visual_radius: float,
 	scale = Vector3.ONE * visual_radius
 
 	# 2. Hiyerarşik LOD değerlendirmesi
-	for rkey in _root_keys:
+	var lod_observer: Vector3
+	if focus_direction_override.length_squared() > 0.001:
+		var focus_dir := focus_direction_override.normalized()
+		_last_focus_direction = focus_dir
+		var altitude := maxf((real_cam - real_center).length() - _body_radius, 0.0)
+		lod_observer = real_center + focus_dir * (_body_radius + altitude)
+	else:
+		lod_observer = _get_view_focused_observer(real_cam, real_center, cam_forward)
+	var prioritized_roots := _sorted_keys_by_distance(_root_keys, lod_observer, real_center)
+	for root_index in range(prioritized_roots.size()):
+		var rkey = prioritized_roots[root_index]
 		if not _all_chunks.has(rkey):
 			continue
-		_evaluate_node(rkey, real_cam, real_center, cam_forward)
+		_evaluate_node(rkey, lod_observer, real_center, cam_forward, root_index == 0)
+
+
+func _get_view_focused_observer(real_cam: Vector3, real_center: Vector3, cam_forward: Vector3) -> Vector3:
+	var center_to_cam := real_cam - real_center
+	var center_distance := center_to_cam.length()
+	if center_distance < 1.0 or cam_forward.length_squared() < 0.001:
+		_last_focus_direction = center_to_cam.normalized()
+		return real_cam
+
+	var ray_dir := cam_forward.normalized()
+	var cam_to_center := real_center - real_cam
+	var along_ray := cam_to_center.dot(ray_dir)
+	var closest_on_ray := real_cam + ray_dir * maxf(along_ray, 0.0)
+	var focus_dir := (closest_on_ray - real_center).normalized()
+
+	# Işın küreyi kesiyorsa gerçek ön yüz vuruşunu kullan. Kesmiyorsa ışına
+	# en yakın yüzey yönü, ufka bakarken kararlı bir odak noktası sağlar.
+	var discriminant := along_ray * along_ray - (cam_to_center.length_squared() - _body_radius * _body_radius)
+	if along_ray >= 0.0 and discriminant >= 0.0:
+		var hit_distance := along_ray - sqrt(discriminant)
+		var hit_point := real_cam + ray_dir * maxf(hit_distance, 0.0)
+		focus_dir = (hit_point - real_center).normalized()
+	if focus_dir.length_squared() < 0.001:
+		focus_dir = center_to_cam.normalized()
+
+	_last_focus_direction = focus_dir
+	var altitude := maxf(center_distance - _body_radius, 0.0)
+	return real_center + focus_dir * (_body_radius + altitude)
 
 
 # ── Görüş alanı dışı ve ufuk arkası parçaları budama (Frustum & Horizon Culling) ──
 func _is_chunk_culled(cd: Dictionary, real_cam: Vector3, real_center: Vector3, cam_forward: Vector3) -> bool:
-	var dir = _chunk_center_dir(cd.level, cd.li, cd.lj)
-	var chunk_pos = real_center + dir * _body_radius
-
-	# Ufuk Arkası (Horizon Occlusion): Gezegenin tam arkasında kalan parçaları çizme
-	var to_cam = (real_cam - chunk_pos).normalized()
-	if dir.dot(to_cam) < -0.32:
-		return true
-
-	# Kamera Arkası (Frustum Culling): Kameranın görüş açısının gerisinde kalan parçalar
-	if cam_forward != Vector3.ZERO:
-		var to_chunk_from_cam = (chunk_pos - real_cam).normalized()
-		# FOV toleransı (110 derece açının gerisi elenir)
-		if cam_forward.dot(to_chunk_from_cam) < -0.35:
-			var cam_dist = (chunk_pos - real_cam).length()
-			# Sadece kameraya çok yakın olmayan parçaları eler
-			if cam_dist > _body_radius * 0.15:
-				return true
-
+	# A centre-point test is not a valid visibility bound for a curved patch:
+	# it produced the planet-sized black wedge visible in approach screenshots.
+	# RenderingServer already frustum-culls each MeshInstance3D using its AABB.
+	# Keep complete spherical coverage until conservative angular bounds exist.
+	var _unused = [cd, real_cam, real_center, cam_forward]
 	return false
 
 
@@ -235,7 +291,7 @@ func is_ready() -> bool:
 	return true
 
 
-func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_forward: Vector3 = Vector3.ZERO) -> void:
+func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_forward: Vector3 = Vector3.ZERO, prioritize: bool = false) -> void:
 	var cd = _all_chunks.get(key)
 	if cd == null:
 		return
@@ -273,8 +329,10 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 			_set_visible(cd, false)
 			# Yalnızca aktif yapraklar görünür olacak şekilde çocukları değerlendir
 			var ckeys = _child_keys(cd.level, cd.li, cd.lj)
-			for ckey in ckeys:
-				_evaluate_node(ckey, real_cam, real_center, cam_forward)
+			if prioritize:
+				ckeys = _sorted_keys_by_distance(ckeys, real_cam, real_center)
+			for child_index in range(ckeys.size()):
+				_evaluate_node(ckeys[child_index], real_cam, real_center, cam_forward, prioritize and child_index == 0)
 			return
 		else:
 			# Çocuklar henüz GPU'da oluşmadıysa ebeveyni ASLA gizleme (boşluk kalmasını önler)
@@ -295,8 +353,22 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 
 func _chunk_surface_dist(cd: Dictionary, real_cam: Vector3, real_center: Vector3) -> float:
 	var dir = _chunk_center_dir(cd.level, cd.li, cd.lj)
-	var pos = real_center + dir * _body_radius
-	return (pos - real_cam).length()
+	# LOD uzaklığını deniz seviyesi küresinden değil, üretilmiş arazinin
+	# gerçek yarıçapından ölç. Dağın üzerinde duran kamera aksi halde arazi
+	# yüksekliği kadar uzakta sanılıyor ve son seviye açılmıyordu.
+	var terrain_radius = _body_radius * (1.0 + _sample_terrain_height(dir, cd.level))
+	var pos = real_center + dir * terrain_radius
+	# Merkez uzaklığı küçük parçalarda yeterli olsa da kamera chunk kenarına
+	# yaklaştığında gerçek yüzeyi kilometrelerce uzakta sanıyordu. Chunk'ın
+	# küresel kapladığı alanı bir sınır yarıçapı olarak çıkar; böylece kameranın
+	# altında kalan yaprak LOD 11'e kadar ilerleyebilir.
+	var gs = _grid_size(cd.level)
+	var half_lat = (PI / float(gs.x)) * 0.5
+	var half_lon = (TAU / float(gs.y)) * 0.5
+	var center_lat = -PI * 0.5 + (float(cd.li) + 0.5) * (PI / float(gs.x))
+	var angular_radius = sqrt(half_lat * half_lat + pow(half_lon * cos(center_lat), 2.0))
+	var patch_radius = _body_radius * angular_radius
+	return maxf((pos - real_cam).length() - patch_radius, 0.0)
 
 
 func _ensure_children(cd: Dictionary) -> bool:
@@ -328,6 +400,18 @@ func _child_keys(level: int, li: int, lj: int) -> Array[String]:
 		for cj in range(CHILD_NLON):
 			keys.append(_ckey(clvl, base_li + ci, base_lj + cj))
 	return keys
+
+
+func _sorted_keys_by_distance(keys: Array[String], observer: Vector3, center: Vector3) -> Array[String]:
+	var sorted := keys.duplicate()
+	sorted.sort_custom(func(a: String, b: String) -> bool:
+		var a_chunk = _all_chunks.get(a)
+		var b_chunk = _all_chunks.get(b)
+		if a_chunk == null: return false
+		if b_chunk == null: return true
+		return _chunk_surface_dist(a_chunk, observer, center) < _chunk_surface_dist(b_chunk, observer, center)
+	)
+	return sorted
 
 
 func _set_visible(cd: Dictionary, v: bool) -> void:
@@ -383,29 +467,41 @@ func _grid_size(level: int) -> Vector2i:
 static func sample_terrain_height_static(noise: FastNoiseLite, dir: Vector3, body_radius: float = 6371000.0) -> float:
 	if noise == null:
 		return 0.0
+	# FastNoiseLite girdiyi kendi frequency değeriyle yeniden çarpar. Küresel
+	# koordinatlar birim vektör olduğu için eski değerler bütün gezegende
+	# gürültünün çok küçük, neredeyse düz bir bölümünü örnekliyordu.
+	var domain = 1.0 / maxf(noise.frequency, 0.0001)
 
 	# 1. Kıtalar ve Okyanus/Ova Havzaları (Continental Layer: -3.5 km ila +2.5 km)
-	var continental = noise.get_noise_3dv(dir * 1.6)
+	var continental = noise.get_noise_3dv(dir * (1.6 * domain))
 
 	# Dağ Maskesi: Sadece kıtasal kabuk üzerinde yükselen heybetli sıradağlar
 	var mountain_mask = smoothstep(0.02, 0.45, continental)
 
 	# Düzlükler ve Havzalar (Plains & Basins)
-	var plains = noise.get_noise_3dv(dir * 4.5) * 0.20
+	# Ova tabanı kıta sinyalinden türetilir; ayrı noise sorgusu gerekmez.
+	var plains = continental * 0.20
 
 	# 2. Sıradağlar, Sarp Sırtlar ve Kanyonlar (Mountain Layer: +3.0 km ila +9.0 km)
-	var ridge_1 = 1.0 - absf(noise.get_noise_3dv(dir * 7.5))
-	var ridge_2 = 1.0 - absf(noise.get_noise_3dv(dir * 16.0))
+	var ridge_1 = 1.0 - absf(noise.get_noise_3dv(dir * (7.5 * domain)))
+	var ridge_2 = 1.0 - absf(noise.get_noise_3dv(dir * (16.0 * domain)))
 	var sharp_ridge = (pow(ridge_1, 2.2) * 0.75 + pow(ridge_2, 2.0) * 0.25) * mountain_mask
 
 	# 3. Yerel Detaylar (Local-Detail Layer: Onlarca ve yüzlerce metre ölçeğinde tepecikler, kayalar)
-	var local_hills = noise.get_noise_3dv(dir * 36.0) * 0.18
-	var local_ridges = (1.0 - absf(noise.get_noise_3dv(dir * 90.0))) * 0.08
-	var local_micro = noise.get_noise_3dv(dir * 250.0) * 0.035
-	var local_detail = (local_hills + local_ridges + local_micro)
+	var local_hills_raw = noise.get_noise_3dv(dir * (36.0 * domain))
+	var local_hills = local_hills_raw * 0.18
+	# Aynı yerel sinyalin mutlak değeri sırt maskesi olarak tekrar kullanılır.
+	var local_ridges = (1.0 - absf(local_hills_raw)) * 0.06
+	# Kilometre ölçekli geometri: eski en yüksek frekans büyük gezegenlerde
+	# 100+ km dalga boyunda kalıyor, LOD 10–11 daha çok üçgen üretse de düz
+	# görünüyordu. Bu iki katman yakın yüzeyde gerçek tepe ve kaya sırtı verir.
+	var local_micro_raw = noise.get_noise_3dv(dir * (2400.0 * domain))
+	var local_micro = local_micro_raw * 0.075
+	var ultra_ridge = (1.0 - absf(local_micro_raw)) * 0.022
+	var local_detail = (local_hills + local_ridges + local_micro + ultra_ridge)
 
 	# Aktif topoğrafya ölçeği (Varsayılan 12 km, debug sırasında 30-50 km)
-	var active_scale_km = debug_elevation_override_km if debug_elevation_override_km > 0.0 else elevation_scale_km
+	var active_scale_km = get_elevation_scale_km(body_radius)
 
 	var normalized_elevation = (continental * 0.22) + (plains * 0.08) + (sharp_ridge * 0.60) + (local_detail * 0.10)
 	var height_meters = normalized_elevation * (active_scale_km * 1000.0)
@@ -429,8 +525,8 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 	var uvs := PackedVector2Array()
 	var indices: PackedInt32Array = []
 
-	var eps = 0.003
-
+	# Önce yalnızca konumları örnekle. Eski yöntem normal hesabı için her
+	# vertex'te iki ek yükseklik örneği alıyor ve noise maliyetini üçe katlıyordu.
 	for si in range(subdiv + 1):
 		var sf = float(si) / subdiv
 		for sj in range(subdiv + 1):
@@ -438,22 +534,28 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 			var dir = _sphere_point(li, lj, nlat, nlon, sf, tf)
 			var h = _sample_terrain_height(dir, level)
 
-			# Yüzey normali: Küresel teğet gradyanı üzerinden analitik hesap
-			var t_lon = Vector3(-dir.z, 0.0, dir.x).normalized()
-			if t_lon.length_squared() < 0.001:
-				t_lon = Vector3.RIGHT
-			var t_lat = dir.cross(t_lon).normalized()
-
-			var h_lon = _sample_terrain_height((dir + t_lon * eps).normalized(), level)
-			var h_lat = _sample_terrain_height((dir + t_lat * eps).normalized(), level)
-			var dh_dlon = (h_lon - h) / eps
-			var dh_dlat = (h_lat - h) / eps
-
-			var norm = (dir - t_lon * (dh_dlon * 4.0) - t_lat * (dh_dlat * 4.0)).normalized()
-
 			verts.append(dir * (1.0 + h))
-			normals.append(norm)
 			uvs.append(Vector2(1.0 - float(lj + tf) / nlon, 1.0 - float(li + sf) / nlat))
+
+	# Komşu vertex farklarından normal üret. Bu yöntem örneklenmiş gerçek mesh
+	# eğimini kullanır ve ilave noise sorgusu gerektirmez.
+	for si in range(subdiv + 1):
+		for sj in range(subdiv + 1):
+			var left_i = si * (subdiv + 1) + maxi(sj - 1, 0)
+			var right_i = si * (subdiv + 1) + mini(sj + 1, subdiv)
+			var lower_i = maxi(si - 1, 0) * (subdiv + 1) + sj
+			var upper_i = mini(si + 1, subdiv) * (subdiv + 1) + sj
+			var tangent_lon = verts[right_i] - verts[left_i]
+			var tangent_lat = verts[upper_i] - verts[lower_i]
+			var normal = tangent_lon.cross(tangent_lat).normalized()
+			var vertex_dir = verts[si * (subdiv + 1) + sj].normalized()
+			# Enlem-boylam küresinin kutup satırında boylam teğeti sıfırdır.
+			# Sıfır normal ışık/sivri birleşme artefaktı üretmesin.
+			if normal.length_squared() < 0.25:
+				normal = vertex_dir
+			if normal.dot(vertex_dir) < 0.0:
+				normal = -normal
+			normals.append(normal)
 
 	# 1. Ana Yüzey Üçgenleri
 	for si in range(subdiv):
@@ -466,7 +568,13 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 			indices.append(i1); indices.append(i2); indices.append(i3)
 
 	# 2. Kenar Eteği (Mesh Skirts): Komşu LOD seviyeleri arasındaki çatlak ve boşlukları sıfırlar
-	var skirt_ratio = (1.0 / pow(1.85, level)) * 0.018
+	# The old percentage-based skirt was several kilometres deep on large planets,
+	# so a harmless LOD seam appeared as a black canyon.  Derive the depth from
+	# local vertex spacing and cap it in world metres.
+	var angular_span = maxf(PI / float(nlat), TAU / float(nlon))
+	var vertex_spacing_m = _body_radius * angular_span / float(subdiv)
+	var skirt_depth_m = clampf(vertex_spacing_m * 0.32, 1.5, 64.0)
+	var skirt_ratio = skirt_depth_m / _body_radius
 	var edge_indices: Array[int] = []
 	for sj in range(subdiv):
 		edge_indices.append(0 * (subdiv + 1) + sj) # Üst kenar
@@ -482,7 +590,10 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 	for k in range(num_edges):
 		var top_idx = edge_indices[k]
 		var top_v = verts[top_idx]
-		var skirt_v = top_v * (1.0 - skirt_ratio)
+		# Bütün boylamlar kutupta aynı vertexe kapanır. Burada etek aşağı
+		# uzatılırsa üst/alt birleşimde siyah iğne ve yıldız biçimli yarık oluşur.
+		var at_pole := absf(top_v.normalized().y) > 0.999999
+		var skirt_v = top_v if at_pole else top_v * (1.0 - skirt_ratio)
 		verts.append(skirt_v)
 		normals.append(normals[top_idx])
 		uvs.append(uvs[top_idx])
@@ -509,6 +620,7 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 	if mat != null:
 		mi.material_override = mat
 	mi.extra_cull_margin = 1000000.0
+	mi.transparency = 1.0 - _visibility_alpha
 	mi.visible = (level == 0)
 	add_child(mi)
 
@@ -527,6 +639,7 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 	if _border_material != null:
 		bmi.material_override = _border_material
 	bmi.extra_cull_margin = 1000000.0
+	bmi.transparency = 1.0 - _visibility_alpha
 	bmi.visible = (level == 0 and _border_visible)
 	add_child(bmi)
 
@@ -573,6 +686,7 @@ static func create_planet_terrain_material(body: CelestialBody = null) -> Shader
 		sm.set_shader_parameter("color_midlands", Color(0.45, 0.55, 0.28))
 		sm.set_shader_parameter("color_highlands", Color(0.85, 0.88, 0.92))
 		sm.set_shader_parameter("color_cliff", Color(0.22, 0.20, 0.18))
+	else:
 		# Standart karasal / çöl gezegeni
 		sm.set_shader_parameter("color_ocean_deep", base_col.darkened(0.6))
 		sm.set_shader_parameter("color_lowlands", base_col.darkened(0.2))
@@ -580,8 +694,8 @@ static func create_planet_terrain_material(body: CelestialBody = null) -> Shader
 		sm.set_shader_parameter("color_highlands", base_col.lightened(0.55))
 		sm.set_shader_parameter("color_cliff", base_col.darkened(0.5))
 
-	var active_scale = debug_elevation_override_km if debug_elevation_override_km > 0.0 else elevation_scale_km
 	var p_radius = body.real_radius if body != null else 3477200.0
+	var active_scale = get_elevation_scale_km(p_radius)
 	var peak_ratio = (active_scale * 1000.0) / maxf(p_radius, 1000.0)
 	sm.set_shader_parameter("elevation_peak", peak_ratio)
 

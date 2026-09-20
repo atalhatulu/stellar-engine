@@ -1,0 +1,120 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/tests/planet_landing_lab.gd" id="1_lab"]
+[ext_resource type="Script" path="res://scripts/core/free_look_camera.gd" id="2_camera"]
+[ext_resource type="FontFile" path="res://assets/fonts/FiraSans-Medium.ttf" id="3_font"]
+[ext_resource type="FontFile" path="res://assets/fonts/DejaVuSansMono-Bold.ttf" id="4_mono"]
+
+[sub_resource type="Environment" id="Environment_lab"]
+background_mode = 1
+background_color = Color(0.002, 0.004, 0.012, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.13, 0.18, 0.26, 1)
+ambient_light_energy = 0.32
+tonemap_mode = 2
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+bg_color = Color(0.008, 0.025, 0.05, 0.92)
+border_width_left = 1
+border_width_top = 2
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.08, 0.72, 0.84, 0.8)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="Style_progress_bg"]
+bg_color = Color(0.02, 0.09, 0.14, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="Style_progress_fill"]
+bg_color = Color(0.05, 0.82, 0.88, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[node name="PlanetLandingLab" type="Node3D"]
+script = ExtResource("1_lab")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_lab")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-38, -28, 0)
+light_color = Color(1, 0.88, 0.72, 1)
+light_energy = 2.2
+shadow_enabled = true
+
+[node name="FreeLookCamera" type="Node3D" parent="."]
+script = ExtResource("2_camera")
+base_speed = 10000.0
+min_speed = 50.0
+max_speed = 250000.0
+
+[node name="Camera3D" type="Camera3D" parent="FreeLookCamera"]
+current = true
+near = 1.0
+far = 3000000.0
+fov = 68.0
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+
+[node name="Title" type="Label" parent="UILayer"]
+offset_left = 28.0
+offset_top = 24.0
+offset_right = 680.0
+offset_bottom = 58.0
+theme_override_colors/font_color = Color(0.78, 0.95, 1, 1)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 22
+text = "PLANET LANDING LAB"
+
+[node name="Help" type="Label" parent="UILayer"]
+offset_left = 30.0
+offset_top = 58.0
+offset_right = 1050.0
+offset_bottom = 88.0
+theme_override_colors/font_color = Color(0.48, 0.65, 0.74, 1)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 13
+text = "[L] İniş  [R] Sıfırla  [1/2/3] 6R–3R–1.02R  [4] Yüzey/LOD11  [V] LOD renkleri  [B] Sınırlar"
+
+[node name="StatusPanel" type="PanelContainer" parent="UILayer"]
+offset_left = 28.0
+offset_top = 104.0
+offset_right = 390.0
+offset_bottom = 284.0
+theme_override_styles/panel = SubResource("Style_panel")
+
+[node name="Margin" type="MarginContainer" parent="UILayer/StatusPanel"]
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 13
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 13
+
+[node name="VBox" type="VBoxContainer" parent="UILayer/StatusPanel/Margin"]
+theme_override_constants/separation = 8
+
+[node name="Status" type="Label" parent="UILayer/StatusPanel/Margin/VBox"]
+theme_override_colors/font_color = Color(0.22, 0.9, 0.85, 1)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 14
+text = "YÖRÜNGE YAKLAŞMASI"
+
+[node name="Telemetry" type="Label" parent="UILayer/StatusPanel/Margin/VBox"]
+theme_override_colors/font_color = Color(0.84, 0.93, 1, 1)
+theme_override_fonts/font = ExtResource("4_mono")
+theme_override_font_sizes/font_size = 13
+text = "İRTİFA\nLOD\nFPS"
+
+[node name="Progress" type="ProgressBar" parent="UILayer/StatusPanel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 7)
+theme_override_styles/background = SubResource("Style_progress_bg")
+theme_override_styles/fill = SubResource("Style_progress_fill")
+show_percentage = false

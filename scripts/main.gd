@@ -81,6 +81,10 @@ const WALK_SPEED_PRESETS: Array = [3.0, 8.0, 15.0, 30.0, 60.0, 120.0, 250.0, 500
 const JUMP_SPEED: float = 16.0              # Zıplama başlangıç hızı (m/s)
 const SURFACE_GRAVITY: float = 20.0         # Gezegen yüzeyi yerçekimi (m/s²)
 const EYE_HEIGHT: float = 1.8
+const SHIP_GEAR_CLEARANCE: float = 0.84
+# Milyarlarca metrelik sistem koordinatlarında 32-bit Vector3 yüzeye yakınken
+# onlarca metre kuantizasyon yapabilir. İnişten önce güvenli dış kabuk.
+const PLANET_COLLISION_GUARD: float = 256.0
 
 # Outer Wilds Astronot & Jetpack Yaşam Desteği
 var astronaut_oxygen: float = 100.0             # % Kask Yaşam Desteği (O2)
@@ -171,6 +175,8 @@ func _input(event):
 			time_scale = clamp(time_scale * 2.0, 0.0625, 64.0)
 		elif event.keycode == KEY_G:
 			_start_autopilot()
+		elif event.keycode == KEY_L:
+			_handle_landing_key()
 		elif event.keycode == KEY_B:
 			show_chunk_borders = !show_chunk_borders
 			_update_chunk_borders()
@@ -197,10 +203,10 @@ func _input(event):
 			focus_target_star = null
 			focus_time = 0.0
 			print("HEDEF SEÇİMİ VE BİLGİ KARTI KAPATILDI (C)")
-		elif event.keycode == KEY_F8:
+		elif event.keycode == KEY_I:
 			if hud != null and hud.has_method("toggle_lod_debug_card"):
 				var is_on = hud.toggle_lod_debug_card()
-				print("LOD TELEMETRİ KARTI (F8): ", "AÇIK" if is_on else "KAPALI")
+				print("LOD TELEMETRİ KARTI (I): ", "AÇIK" if is_on else "KAPALI")
 		elif event.keycode == KEY_F9:
 			print("--- MANUEL TEST VE PROFİLLEME BAŞLATILIYOR (F9) ---")
 			_run_all_diagnostics()
@@ -1360,6 +1366,7 @@ func _setup_galactic_starfield() -> void:
 
 
 func _process(delta):
+	var collision_frame_start := virtual_player_position
 	flight_speed_mps = 0.0
 	# Yıldız geçiş bekleme süresi
 	if _star_transition_cooldown > 0.0:
@@ -1562,7 +1569,7 @@ func _process(delta):
 				height_at_landing = planet_r * h_ratio
 			var rel_x = -landed_walk_offset.x
 			var rel_z = -landed_walk_offset.y
-			var rel_y = (height_at_landing + 0.45) - (visual_ground_h + EYE_HEIGHT + landed_vertical_offset)
+			var rel_y = (height_at_landing + SHIP_GEAR_CLEARANCE) - (visual_ground_h + EYE_HEIGHT + landed_vertical_offset)
 			current_sc.global_position = local_x * rel_x + local_z * rel_z + local_up * rel_y
 			current_sc.global_basis = landed_ship_basis
 			
@@ -1687,7 +1694,7 @@ func _process(delta):
 					landing_noise = autopilot_target_body.noise_albedo.noise
 				
 				var approach_vec = autopilot_relative_start_pos
-				var landing_dir = approach_vec.normalized() if approach_vec.length_squared() > 0.01 else Vector3.UP
+				var landing_dir = _compute_safe_landing_direction(approach_vec)
 				var height_at_landing = 0.0
 				if landing_noise != null:
 					var h_ratio = PlanetChunkSphere.sample_terrain_height_static(landing_noise, landing_dir, autopilot_target_body.real_radius)
@@ -1731,8 +1738,8 @@ func _process(delta):
 							_:        dist_mult = 1.5
 					else:
 						match autopilot_target_body.type:
-							"PLANET": dist_mult = 3.2
-							_:        dist_mult = 4.5
+							"PLANET": dist_mult = 3.0
+							_:        dist_mult = 3.5
 					var target_dist = autopilot_target_body.real_radius * dist_mult
 					var start_dist: float = autopilot_relative_start_pos.length()
 					flight_speed_mps = absf(start_dist - target_dist) * ease_rate
@@ -1742,7 +1749,7 @@ func _process(delta):
 			if is_landing_autopilot:
 				# İniş yaklaşmasında geminin yüzeye DÜZ inmesi için yüzey normali ve teğet matrisi
 				var current_rel = virtual_player_position - body_abs_pos
-				var current_up = current_rel.normalized() if current_rel.length_squared() > 0.01 else Vector3.UP
+				var current_up = _compute_safe_landing_direction(current_rel)
 				var prev_fwd = -autopilot_start_basis.z
 				var fwd_proj = prev_fwd - prev_fwd.project(current_up)
 				var ship_fwd: Vector3
@@ -1920,10 +1927,7 @@ func _process(delta):
 	for body in active_system_bodies:
 		if body.parent_body != null:
 			body.orbit_angle += body.orbit_speed * simulation_delta
-			var orbit_vec = Vector3(cos(body.orbit_angle), 0, sin(body.orbit_angle)) * body.orbit_radius
-			if body.orbit_inclination != 0.0:
-				orbit_vec = orbit_vec.rotated(Vector3.FORWARD, body.orbit_inclination)
-			body.local_position = orbit_vec
+			body.local_position = body.get_orbit_position()
 		
 		body.rotation_angle += body.rotation_speed * simulation_delta
 		
@@ -1957,21 +1961,21 @@ func _process(delta):
 			followed_body = null
 	
 	# Gezegen yüzeylerinin ve dağların altından/içinden geçmeyi engelle
-	_clamp_player_above_planet_surfaces(delta)
+	_clamp_player_above_planet_surfaces(delta, collision_frame_start)
 
 	# Dinamik Derinlik Tamponu (Near Plane) Ayarı: Uzayda 0.3m, yüzeyde veya yakınlaşmada 0.04m
 	var camera_3d = camera.get_node_or_null("Camera3D")
 	if camera_3d:
 		var near_planet: bool = false
 		for b in active_system_bodies:
-			if b.type != "STAR" and safe_vector_length(b.real_position) < b.real_radius * 1.8:
+			if b.type != "STAR" and safe_vector_length(b.real_position) < b.real_radius * 6.5:
 				near_planet = true
 				break
 		var close_view: bool = is_landed or is_eva_active or near_planet or (spacecraft != null and spacecraft.current_view_mode == Spacecraft.CameraViewMode.INTERIOR_FPS)
 		var target_near = 0.5 if close_view else 0.8
 		if camera_3d.near != target_near:
 			camera_3d.near = target_near
-		var target_far = 100000.0
+		var target_far = 35000000.0 if near_planet else 100000.0
 		if camera_3d.far != target_far:
 			camera_3d.far = target_far
 	
@@ -2027,7 +2031,11 @@ func _process(delta):
 			scale_mult = max(1.0, visual_scale_multiplier * 0.1)
 			
 		var effective_radius = body.real_radius * scale_mult
-		var render_dist = min(dist, visual_distance_limit)
+		# Yüzeye ve yörünge yaklaşmasına (6.5R) girildiğinde test sahnesi standardında
+		# 1:1 gerçek metre ölçeğine geç. Aksi halde 10 km render sıkıştırması 1.35R'de
+		# sahne sıçramasına ve Z-buffer bozulmasına neden olur.
+		var near_surface_render := body.type != "STAR" and dist < body.real_radius * 6.5
+		var render_dist = dist if near_surface_render else min(dist, visual_distance_limit)
 		
 		var min_pixel_radius = 4.0
 		var star_dist_factor = 0.0
@@ -2093,7 +2101,7 @@ func _process(delta):
 		if is_instance_valid(body.lod_sprite):
 			body.lod_sprite.visible = show_lod_sprite
 			if show_lod_sprite:
-				if dist > visual_distance_limit:
+				if dist > visual_distance_limit and not near_surface_render:
 					body.lod_sprite.global_position = dir * visual_distance_limit
 				else:
 					body.lod_sprite.global_position = body.real_position
@@ -2118,7 +2126,7 @@ func _process(delta):
 					)
 					
 		if is_instance_valid(body.visual_mesh):
-			if dist > visual_distance_limit:
+			if dist > visual_distance_limit and not near_surface_render:
 				body.visual_mesh.global_position = dir * visual_distance_limit
 			else:
 				body.visual_mesh.global_position = body.real_position
@@ -2171,9 +2179,7 @@ func _process(delta):
 				pts.resize(steps + 1)
 				for i in range(steps + 1):
 					var theta = (float(i) / steps) * TAU
-					var pos = Vector3(cos(theta), 0.0, sin(theta)) * body.orbit_radius
-					if body.orbit_inclination != 0.0:
-						pos = pos.rotated(Vector3.FORWARD, body.orbit_inclination)
+					var pos = body.get_orbit_position_at_mean_anomaly(theta)
 					pts[i] = pos
 				body.orbit_sample_points = pts
 			
@@ -2339,17 +2345,22 @@ func _flv_update_flyover_lod() -> void:
 		target = followed_body
 	elif current_target_index >= 0 and current_target_index < universe.size() and universe[current_target_index].type != "STAR":
 		target = universe[current_target_index]
-	else:
-		# Oyuncu serbest uçuyorsa en yakın gezegeni otomatik seç
-		var min_d := INF
-		var closest_b: CelestialBody = null
-		for b in active_system_bodies:
-			if b.type != "STAR" and is_instance_valid(b.visual_mesh):
-				var d = safe_vector_length(b.real_position)
-				if d < b.real_radius * 4.5 and d < min_d:
-					min_d = d
-					closest_b = b
-		target = closest_b
+
+	# Seçili hedef başka bir uzak gezegense yakındaki fiziksel gövdeyi
+	# engellememeli. Her kare yakın çevreyi tara ve yalnızca mevcut aday gerçekten
+	# yakınsa onun önceliğini koru.
+	var min_d := INF
+	var closest_b: CelestialBody = null
+	for b in active_system_bodies:
+		if b.type != "STAR" and is_instance_valid(b.visual_mesh):
+			var d = safe_vector_length(b.real_position)
+			if d < b.real_radius * 6.1 and d < min_d:
+				min_d = d
+				closest_b = b
+	if not is_landed:
+		var candidate_is_near := target != null and safe_vector_length(target.real_position) <= target.real_radius * 6.0
+		if not candidate_is_near and closest_b != null:
+			target = closest_b
 
 	if target == null:
 		_flv_clear_chunks()
@@ -2359,9 +2370,10 @@ func _flv_update_flyover_lod() -> void:
 		_flv_clear_chunks()
 		return
 
-	# Yaklaşma mesafesi eşiği: Gezegene 4.0 kat yarıçap mesafesine girildiğinde pürüzsüz ve çoklu chunk LOD başlar
+	# Chunk'ları görünür geçişten önce hazırla; 5.5R–2.75R arasında makro küre
+	# ile prosedürel arazi birbirine karışır.
 	var dist_to_target = safe_vector_length(target.real_position)
-	if not is_landed and dist_to_target > target.real_radius * 4.0:
+	if not is_landed and dist_to_target > target.real_radius * 6.0:
 		_flv_clear_chunks()
 		return
 
@@ -2378,6 +2390,7 @@ func _flv_update_flyover_lod() -> void:
 		_flv_clear_chunks()
 		_chunk_target = target
 		sphere_chunk_manager = PlanetChunkSphere.new()
+		sphere_chunk_manager.name = "ActivePlanetTerrain"
 		add_child(sphere_chunk_manager)
 		sphere_chunk_manager.initialize(noise, target.real_radius)
 		var mesh = target.visual_mesh
@@ -2394,15 +2407,41 @@ func _flv_update_flyover_lod() -> void:
 
 	var visual_radius = mesh.scale.x
 	var body_abs_pos = target.get_absolute_position(active_star)
-	var cam_fwd = -camera.global_transform.basis.z if camera != null else Vector3.FORWARD
+	# LOD odağı, kamera rig'inden değil ekrana gerçekten görüntü veren Camera3D'den
+	# alınır. Üçüncü şahıs gecikmesi ve serbest bakışta ayrıntı ekran merkezini izler.
+	var view_camera: Camera3D = camera.camera_node if (camera != null and "camera_node" in camera) else (camera.get_node_or_null("Camera3D") if camera != null else null)
+	var cam_fwd = -view_camera.global_basis.z if view_camera != null else (-camera.global_basis.z if camera != null else Vector3.FORWARD)
+	var render_focus_dir := _flv_render_focus_direction(view_camera, mesh.global_position, visual_radius, cam_fwd)
 	sphere_chunk_manager.update(Vector3.ZERO, mesh.global_position, visual_radius,
-		virtual_player_position, body_abs_pos, cam_fwd)
+		virtual_player_position, body_abs_pos, cam_fwd, render_focus_dir)
 
-	# Yeni küresel chunk sistemi hazır olmadan eski küre ASLA gizlenmez (boşluk kalmasını önler)
-	if sphere_chunk_manager.is_ready():
-		target.visual_mesh.visible = false
-	else:
-		target.visual_mesh.visible = true
+	# Geometrinin bir karede değişmesi yerine aynı kamera altında sürekli çapraz geçiş.
+	var radius_ratio = dist_to_target / maxf(target.real_radius, 1.0)
+	var terrain_blend = 1.0 if is_landed else smoothstep(0.0, 1.0, clampf((5.5 - radius_ratio) / 2.75, 0.0, 1.0))
+	if not sphere_chunk_manager.is_ready():
+		terrain_blend = 0.0
+	sphere_chunk_manager.visible = terrain_blend > 0.001
+	sphere_chunk_manager.set_visibility_alpha(terrain_blend)
+	target.visual_mesh.transparency = terrain_blend
+	target.visual_mesh.visible = terrain_blend < 0.999
+
+
+func _flv_render_focus_direction(view_camera: Camera3D, center: Vector3, radius: float, forward: Vector3) -> Vector3:
+	if view_camera == null or radius <= 0.0:
+		return Vector3.ZERO
+	var origin := view_camera.global_position
+	var ray := forward.normalized()
+	var to_center := center - origin
+	var along := to_center.dot(ray)
+	var discriminant := along * along - (to_center.length_squared() - radius * radius)
+	if along >= 0.0 and discriminant >= 0.0:
+		var hit := origin + ray * maxf(along - sqrt(discriminant), 0.0)
+		return (hit - center).normalized()
+	var closest := origin + ray * maxf(along, 0.0)
+	var fallback := (closest - center).normalized()
+	if fallback.length_squared() < 0.001:
+		fallback = (origin - center).normalized()
+	return fallback
 
 
 func _flv_clear_chunks() -> void:
@@ -2414,7 +2453,8 @@ func _flv_clear_chunks() -> void:
 		# Gezegen mesh'ini geri göster (ancak iniş yapılan gezegen hariç!)
 		var is_landed_target = is_landed and (_chunk_target == landed_body or (landed_body != null and _chunk_target != null and _chunk_target.name == landed_body.name))
 		if _chunk_target != null and not is_landed_target:
-			if is_instance_valid(_chunk_target.visual_mesh) and not _chunk_target.visual_mesh.visible:
+			if is_instance_valid(_chunk_target.visual_mesh):
+				_chunk_target.visual_mesh.transparency = 0.0
 				_chunk_target.visual_mesh.visible = true
 			if is_instance_valid(_chunk_target.atmosphere_mesh):
 				_chunk_target.atmosphere_mesh.visible = false
@@ -2422,7 +2462,13 @@ func _flv_clear_chunks() -> void:
 		sphere_chunk_manager.queue_free()
 		sphere_chunk_manager = null
 
-func _clamp_player_above_planet_surfaces(delta: float = 0.016) -> void:
+func _planet_signed_clearance(relative_position: Vector3, noise: FastNoiseLite, radius: float, guard: float) -> float:
+	var distance := safe_vector_length(relative_position)
+	var direction := safe_vector_normalized(relative_position) if distance > 0.001 else Vector3.UP
+	var terrain := PlanetChunkSphere.sample_terrain_height_static(noise, direction, radius) * radius
+	return distance - (radius + terrain + guard)
+
+func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vector3 = Vector3.ZERO) -> void:
 	if is_landed or is_system_map_active or is_interstellar_autopilot:
 		return
 	if active_star == null:
@@ -2432,29 +2478,58 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016) -> void:
 		if body.type == "STAR":
 			continue
 
-		var body_abs = body.get_absolute_position(active_star)
-		var offset = virtual_player_position - body_abs
-		var dist = safe_vector_length(offset)
-
-		# Çok uzaktaysa yüzey arazi kontrolüne gerek yok
-		if dist > body.real_radius * 1.3:
+		var body_abs: Vector3 = body.get_absolute_position(active_star)
+		var offset: Vector3 = virtual_player_position - body_abs
+		var effective_start := virtual_player_position if frame_start == Vector3.ZERO else frame_start
+		var start_offset: Vector3 = effective_start - body_abs
+		var dist: float = safe_vector_length(offset)
+		var movement: Vector3 = offset - start_offset
+		var closest_t := 0.0
+		if movement.length_squared() > 0.001:
+			closest_t = clampf(-start_offset.dot(movement) / movement.length_squared(), 0.0, 1.0)
+		var closest_offset: Vector3 = start_offset + movement * closest_t
+		var broad_radius := body.real_radius + PlanetChunkSphere.get_elevation_scale_km(body.real_radius) * 1000.0 + PLANET_COLLISION_GUARD
+		if dist > body.real_radius * 1.3 and closest_offset.length() > broad_radius:
 			continue
 
-		var normal_dir = safe_vector_normalized(offset) if dist > 0.001 else Vector3.UP
-
 		var noise: FastNoiseLite = null
+		# İlk temas karesinde düz yarıçapla çarpışma yapılırsa yüksek dağın içine
+		# girilebilir. Yakın gövdenin örnekleyicisini çarpışmadan önce hazırla.
+		if body.noise_albedo == null:
+			SystemGenerator.generate_body_textures(self, body)
 		if body.noise_albedo != null and body.noise_albedo.noise != null:
 			noise = body.noise_albedo.noise
 
-		# Gerçek analitik küresel dağ ve arazi yüksekliği
-		var terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, normal_dir, body.real_radius)
-		var surface_dist = body.real_radius * (1.0 + terrain_ratio)
-		var safety_clearance = EYE_HEIGHT + 0.5
-		var min_dist = surface_dist + safety_clearance
+		var safety_clearance = maxf(PLANET_COLLISION_GUARD, safe_vector_length(player_velocity) * delta * 1.5)
+		var end_clearance := _planet_signed_clearance(offset, noise, body.real_radius, safety_clearance)
+		var closest_clearance := _planet_signed_clearance(closest_offset, noise, body.real_radius, safety_clearance)
+		var collided := end_clearance <= 0.0
+		var contact_offset: Vector3 = offset
 
-		if dist <= min_dist:
+		# Son nokta tekrar dışarıda olsa bile hareket segmenti gezegeni delmişse
+		# ilk giriş temasını bul; yüksek hızlı tünelleme böyle engellenir.
+		if not collided and closest_t > 0.0 and closest_clearance <= 0.0:
+			var low_t := 0.0
+			var high_t := closest_t
+			for _iteration in range(14):
+				var mid_t := (low_t + high_t) * 0.5
+				var mid_offset: Vector3 = start_offset + movement * mid_t
+				if _planet_signed_clearance(mid_offset, noise, body.real_radius, safety_clearance) > 0.0:
+					low_t = mid_t
+				else:
+					high_t = mid_t
+			contact_offset = start_offset + movement * high_t
+			collided = true
+
+		if collided:
+			var normal_dir = safe_vector_normalized(contact_offset) if contact_offset.length_squared() > 0.001 else Vector3.UP
+			var terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, normal_dir, body.real_radius)
+			var min_dist = body.real_radius * (1.0 + terrain_ratio) + safety_clearance
 			# Zeminin altından veya dağların içinden geçmeyi KESİNLİKLE engelle
 			virtual_player_position = body_abs + normal_dir * min_dist
+			# Render bu karede eski iç konumu kullanmasın.
+			for render_body in active_render_bodies:
+				render_body.real_position = render_body.get_absolute_position(active_star) - virtual_player_position
 
 			# İçe doğru olan hız bileşenini sıfırla (zemine batmayı durdur, yüzey boyunca süzülmeyi koru)
 			var inward_speed = player_velocity.dot(-normal_dir)
@@ -2474,12 +2549,10 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016) -> void:
 				flight_speed_mps = safe_vector_length(player_velocity)
 				continue
 
-			# Yalnızca gemi tamamen yavaşladığında (hız <= 12 m/s) yüzeye yumuşak iniş moduna geç
-			if not is_landed and not is_eva_active:
-				player_velocity = Vector3.ZERO
-				flight_speed_mps = 0.0
-				_execute_landing(body)
-				return
+			# Temas inişi otomatik başlatmaz; L ile kontrollü iniş beklenir.
+			player_velocity = Vector3.ZERO
+			flight_speed_mps = 0.0
+			continue
 
 
 # --- PROSEDÜREL YÖRÜNGE HALKASI ÇİZİCİ ---
@@ -2568,9 +2641,9 @@ func _start_autopilot() -> void:
 		autopilot_relative_start_pos = virtual_player_position - body_abs_pos
 		var start_dist: float = autopilot_relative_start_pos.length()
 
-		# Eğer gezegene zaten çok yakınsak (< 2.2x yarıçap): doğrudan iniş yap!
-		if target_body.type != "STAR" and start_dist < target_body.real_radius * 2.2:
-			_execute_landing(target_body)
+		# Gezegene yakınsak (<= 3.5R), G tuşu doğrudan yüzeye iniş protokolünü başlatır!
+		if target_body.type != "STAR" and start_dist <= target_body.real_radius * 3.5:
+			_try_land_on_target()
 			return
 		
 		# Eğer otopilot zaten aktifse ve aynı hedefe gidiyorsak: Çift G HİPER OTOPİLOT
@@ -3056,6 +3129,14 @@ func _zoom_system_map(zoom_in: bool) -> void:
 			body.real_position = body.get_absolute_position(active_star) - virtual_player_position
 
 func _handle_landing_key() -> void:
+	if is_eva_active or (spacecraft != null and not spacecraft.is_seated_in_cockpit):
+		return
+	if is_landed:
+		_launch_from_planet()
+	else:
+		_try_land_on_target()
+
+func _handle_interaction_key() -> void:
 	if is_eva_active:
 		if is_near_ship_airlock:
 			end_eva_mode()
@@ -3072,16 +3153,34 @@ func _handle_landing_key() -> void:
 				return
 			return
 				
-	if is_landed:
-		_launch_from_planet()
-	else:
-		_try_land_on_target()
+func _compute_safe_landing_direction(approach_vec: Vector3) -> Vector3:
+	var horiz = Vector2(approach_vec.x, approach_vec.z)
+	if horiz.length_squared() < 0.001:
+		horiz = Vector2(0.88, 0.47)
+	horiz = horiz.normalized()
+	# Kutuplardaki (lat-lon pinching) tekillik bozulmalarını önlemek için güvenli orta enlem koridoru (|Y| <= 0.32)
+	var lat_factor = clampf(approach_vec.y / maxf(approach_vec.length(), 1.0), -0.32, 0.32)
+	return Vector3(horiz.x, lat_factor, horiz.y).normalized()
 
 func _try_land_on_target() -> void:
 	if is_eva_active or (spacecraft != null and not spacecraft.is_seated_in_cockpit):
 		return
-	if universe.size() == 0 or current_target_index < 0 or current_target_index >= universe.size():
+	if universe.size() == 0:
 		return
+	if current_target_index < 0 or current_target_index >= universe.size() or universe[current_target_index].type == "STAR":
+		var nearest_index := -1
+		var nearest_ratio := INF
+		for index in range(universe.size()):
+			var candidate = universe[index]
+			if candidate.type == "STAR":
+				continue
+			var ratio: float = candidate.real_position.length() / maxf(candidate.real_radius, 1.0)
+			if ratio < nearest_ratio and ratio <= 6.5:
+				nearest_ratio = ratio
+				nearest_index = index
+		if nearest_index < 0:
+			return
+		current_target_index = nearest_index
 		
 	var target = universe[current_target_index]
 	if target.type == "STAR":
@@ -3095,7 +3194,7 @@ func _try_land_on_target() -> void:
 		_toggle_system_map()
 		
 	var dist = target.real_position.length()
-	if dist < target.real_radius * 1.5:
+	if dist < target.real_radius + 40.0:
 		_execute_landing(target)
 	else:
 		followed_body = null
@@ -3107,7 +3206,9 @@ func _try_land_on_target() -> void:
 		autopilot_relative_start_pos = virtual_player_position - body_abs_pos
 		autopilot_start_basis = camera.transform.basis
 		autopilot_timer = 0.0
-		autopilot_duration = 2.5 # Yumuşak iniş alçalması
+		var radius_ratio = autopilot_relative_start_pos.length() / maxf(target.real_radius, 1.0)
+		# Test sahnesi standardında (PlanetLandingLab) 8.5 saniyeye kadar pürüzsüz sinematik atmosferik ve yüzey alçalması
+		autopilot_duration = clampf(radius_ratio * 2.8, 3.5, 8.5)
 
 func _execute_landing(target: CelestialBody) -> void:
 	is_autopilot_active = false
@@ -3115,6 +3216,7 @@ func _execute_landing(target: CelestialBody) -> void:
 	autopilot_target_body = null
 	followed_body = null
 	player_velocity = Vector3.ZERO
+	flight_speed_mps = 0.0
 	
 	is_landed = true
 	landed_body = target
@@ -3129,12 +3231,7 @@ func _execute_landing(target: CelestialBody) -> void:
 		
 	var body_abs_pos = landed_body.get_absolute_position(active_star)
 	var approach_vec = virtual_player_position - body_abs_pos
-	var horiz = Vector2(approach_vec.x, approach_vec.z)
-	if horiz.length_squared() < 0.01:
-		horiz = Vector2(0.88, 0.47)
-	horiz = horiz.normalized()
-	var lat_factor = clampf(approach_vec.y / maxf(approach_vec.length(), 1.0), -0.25, 0.25)
-	var landing_dir = Vector3(horiz.x, lat_factor, horiz.y).normalized()
+	var landing_dir = _compute_safe_landing_direction(approach_vec)
 	
 	var terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, landing_dir, target.real_radius)
 	var height_at_landing = target.real_radius * terrain_ratio
@@ -3215,7 +3312,9 @@ func _execute_landing(target: CelestialBody) -> void:
 	var current_sc = spacecraft if spacecraft != null else (camera.spacecraft if camera != null else null)
 	if current_sc != null:
 		current_sc.global_basis = landed_ship_basis
-		current_sc.global_position = local_up * (-EYE_HEIGHT + 0.45)
+		# Tasarımdaki iniş pabucu gemi orijininden 0.84 m aşağıdadır.
+		# Kamera ve gemi aynı arazi örneğine göre yerleşir.
+		current_sc.global_position = local_up * (-EYE_HEIGHT + SHIP_GEAR_CLEARANCE)
 		# Oyuncunun mevcut kamera modu (3. şahıs / kokpit) korunur; ani sahne değişimi hissi engellenir
 		current_sc.is_seated_in_cockpit = true
 		current_sc.cabin_player_pos = current_sc.PILOT_SEAT_POS

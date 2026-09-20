@@ -242,7 +242,7 @@ func _input(event):
 			if spacecraft != null and (spacecraft.is_seated_in_cockpit or spacecraft.current_view_mode == SpacecraftScript.CameraViewMode.EVA):
 				var mode_str = spacecraft.cycle_camera_mode()
 				print("KAMERA MODU: ", mode_str)
-		elif event.keycode == KEY_L:
+		elif event.keycode == KEY_H:
 			if headlamp != null:
 				headlamp.visible = !headlamp.visible
 				print("OUTER WILDS KASK FENERİ: ", "AÇIK" if headlamp.visible else "KAPALI")

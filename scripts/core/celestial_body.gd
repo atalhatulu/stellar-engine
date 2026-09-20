@@ -22,6 +22,9 @@ var orbit_radius: float
 var orbit_speed: float
 var orbit_angle: float
 var orbit_inclination: float = 0.0 # Radyan cinsinden yörünge eğikliği
+var orbit_eccentricity: float = 0.0
+var argument_of_periapsis: float = 0.0
+var longitude_ascending_node: float = 0.0
 var rotation_speed: float
 var rotation_angle: float
 var axial_tilt: float = 0.0   # Radyan cinsinden eksenel eğim (0 = dik, PI/2 = yan yatmış)
@@ -46,6 +49,28 @@ var roughness: float = 0.5
 var metallic: float = 0.0
 var has_atmosphere: bool = false
 var atmosphere_color: Color = Color(0, 0, 0, 0)
+
+func get_orbit_position_at_mean_anomaly(mean_anomaly: float) -> Vector3:
+	var e := clampf(orbit_eccentricity, 0.0, 0.82)
+	var m := fposmod(mean_anomaly, TAU)
+	var eccentric_anomaly := m
+	for _iteration in range(5):
+		eccentric_anomaly -= (eccentric_anomaly - e * sin(eccentric_anomaly) - m) / maxf(1.0 - e * cos(eccentric_anomaly), 0.001)
+	var semi_major := maxf(orbit_radius, 1.0)
+	var semi_minor := semi_major * sqrt(maxf(1.0 - e * e, 0.001))
+	# Odak ebeveyndedir; elips merkezi e*a kadar kayıktır.
+	var position := Vector3(
+		semi_major * (cos(eccentric_anomaly) - e),
+		0.0,
+		semi_minor * sin(eccentric_anomaly)
+	)
+	position = position.rotated(Vector3.UP, argument_of_periapsis)
+	position = position.rotated(Vector3.RIGHT, orbit_inclination)
+	position = position.rotated(Vector3.UP, longitude_ascending_node)
+	return position
+
+func get_orbit_position() -> Vector3:
+	return get_orbit_position_at_mean_anomaly(orbit_angle)
 
 # Sistem 64-bit koordinatları (titremeyi önlemek için)
 var stellar_x: float = 0.0

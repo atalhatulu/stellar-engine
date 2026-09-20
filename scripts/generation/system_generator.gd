@@ -380,6 +380,11 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 		planet.orbit_radius = current_orbit_distance
 		planet.orbit_angle = angle
 		planet.orbit_inclination = p_inclination
+		planet.orbit_eccentricity = clampf(absf(rng.randfn(0.07, 0.06)), 0.005, 0.32)
+		planet.argument_of_periapsis = rng.randf_range(0.0, TAU)
+		planet.longitude_ascending_node = rng.randf_range(0.0, TAU)
+		planet.local_position = planet.get_orbit_position()
+		planet.real_position = planet.local_position
 		planet.rotation_speed = rng.randf_range(0.05, 0.2)
 		planet.rotation_angle = rng.randf_range(0.0, TAU)
 		
@@ -447,6 +452,11 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 			moon.orbit_radius = current_moon_distance
 			moon.orbit_angle = m_angle
 			moon.orbit_inclination = m_inclination
+			moon.orbit_eccentricity = clampf(absf(rng.randfn(0.035, 0.035)), 0.0, 0.18)
+			moon.argument_of_periapsis = rng.randf_range(0.0, TAU)
+			moon.longitude_ascending_node = rng.randf_range(0.0, TAU)
+			moon.local_position = moon.get_orbit_position()
+			moon.real_position = moon.local_position
 			moon.rotation_speed = rng.randf_range(0.05, 0.2)
 			moon.rotation_angle = rng.randf_range(0.0, TAU)
 			moon.axial_tilt = rng.randf_range(0.0, deg_to_rad(30.0))
@@ -816,9 +826,7 @@ static func spawn_orbit_line(main_node: Node3D, body: CelestialBody) -> void:
 	pts.resize(steps + 1)
 	for i in range(steps + 1):
 		var theta = (float(i) / steps) * TAU
-		var pos = Vector3(cos(theta), 0.0, sin(theta)) * body.orbit_radius
-		if body.orbit_inclination != 0.0:
-			pos = pos.rotated(Vector3.FORWARD, body.orbit_inclination)
+		var pos = body.get_orbit_position_at_mean_anomaly(theta)
 		pts[i] = pos
 	body.orbit_sample_points = pts
 	
