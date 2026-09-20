@@ -2381,7 +2381,8 @@ func _flv_update_flyover_lod() -> void:
 		add_child(sphere_chunk_manager)
 		sphere_chunk_manager.initialize(noise, target.real_radius)
 		var mesh = target.visual_mesh
-		sphere_chunk_manager.set_material(mesh.get_active_material(0))
+		var terrain_mat = PlanetChunkSphere.create_planet_terrain_material(target)
+		sphere_chunk_manager.set_material(terrain_mat)
 		sphere_chunk_manager.set_borders_visible(show_chunk_borders)
 		if debug_lod_colors_active and not sphere_chunk_manager.debug_color_mode:
 			sphere_chunk_manager.toggle_debug_colors()
@@ -3204,9 +3205,13 @@ func _execute_landing(target: CelestialBody) -> void:
 	# Gezegenin kendi etrafındaki dönüşüne göre sabit referans basis'i
 	landed_initial_basis = landed_ship_basis.rotated(Vector3.UP, -target.rotation_angle).orthonormalized()
 	
-	# Kamera yönünü ani sıfırlamak yerine mevcut bakış açısını pürüzsüzce koru (ani kamera sıçramasını engeller)
+	# Kamera yönünü yüzey normaline ve ufka pürüzsüzce hizala
+	camera.transform.basis = landed_ship_basis
+	camera.rot_x = 0.0
+	camera.rot_y = 0.0
 	camera.rot_z = 0.0
-	
+	if camera.has_method("_update_camera_view"):
+		camera._update_camera_view(true)	
 	var current_sc = spacecraft if spacecraft != null else (camera.spacecraft if camera != null else null)
 	if current_sc != null:
 		current_sc.global_basis = landed_ship_basis
@@ -3248,7 +3253,9 @@ func _execute_landing(target: CelestialBody) -> void:
 				
 				# Sis devre dışı bırakıldı (kullanıcı talebi doğrultusunda net ve derin uzay görüşü)
 				env.fog_enabled = false
-				
+				env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+				env.ambient_light_color = Color(0.48, 0.52, 0.58)
+				env.ambient_light_energy = 0.95
 				if mid_field_renderer != null: mid_field_renderer.set_enabled(enable_mid_field)
 				if deep_field_renderer != null: deep_field_renderer.set_enabled(enable_deep_field)
 				if star_visual_pool != null: star_visual_pool.visible = true
@@ -3263,6 +3270,9 @@ func _execute_landing(target: CelestialBody) -> void:
 					env.background_color = Color(0.005, 0.005, 0.01)
 					env.sky_rotation = Vector3.ZERO
 				env.fog_enabled = false
+				env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+				env.ambient_light_color = Color(0.40, 0.42, 0.48)
+				env.ambient_light_energy = 0.90
 				if mid_field_renderer != null: mid_field_renderer.set_enabled(enable_mid_field)
 				if deep_field_renderer != null: deep_field_renderer.set_enabled(enable_deep_field)
 				if star_visual_pool != null: star_visual_pool.visible = true

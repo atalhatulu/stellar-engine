@@ -72,7 +72,7 @@ var lbl_lod_grid_status: Label
 var lbl_lod_breakdown: Label
 var lbl_lod_perf: Label
 var lbl_lod_color_mode: Label
-var show_lod_debug_card: bool = true
+var show_lod_debug_card: bool = false
 
 func toggle_lod_debug_card() -> bool:
 	show_lod_debug_card = !show_lod_debug_card
@@ -100,6 +100,20 @@ var transition_midpoint_callback: Callable
 var transition_finish_callback: Callable
 var transition_mode: String = ""
 var transition_body_name: String = ""
+
+# Contextual approach/landing telemetry. This replaces technical loading feedback
+# with information that belongs to the ship's navigation computer.
+var approach_card: PanelContainer
+var lbl_approach_kicker: Label
+var lbl_approach_name: Label
+var lbl_approach_altitude: Label
+var lbl_approach_speed: Label
+var lbl_approach_vertical: Label
+var lbl_approach_angle: Label
+var lbl_approach_status: Label
+var bar_approach_scan: ProgressBar
+var _approach_target_alpha := 0.0
+var _approach_alpha := 0.0
 
 func _init_fonts() -> void:
 	if ResourceLoader.exists("res://assets/fonts/FiraSans-Medium.ttf"):
@@ -324,8 +338,65 @@ func _build_hud_layout() -> void:
 	action_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(action_bar)
 
-	# 9. Sağ Üst Gezegen LOD & Chunk Telemetri Kartı
+	# 9. Bağlamsal gezegen yaklaşma ve iniş telemetrisi
+	_build_approach_card()
+
+	# 10. Sağ Üst Gezegen LOD & Chunk Telemetri Kartı
 	_build_lod_debug_card()
+
+func _build_approach_card() -> void:
+	approach_card = PanelContainer.new()
+	approach_card.anchor_left = 0.385
+	approach_card.anchor_right = 0.615
+	approach_card.anchor_top = 0.085
+	approach_card.anchor_bottom = 0.305
+	approach_card.custom_minimum_size = Vector2(420, 0)
+	approach_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	approach_card.add_theme_stylebox_override("panel", _create_glass_box(
+		Color(0.16, 0.78, 0.90, 0.72), 7, Color(0.012, 0.032, 0.060, 0.91)))
+	approach_card.visible = false
+	approach_card.modulate.a = 0.0
+	add_child(approach_card)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 4)
+	approach_card.add_child(content)
+
+	lbl_approach_kicker = _create_label("YAKLAŞMA TELEMETRİSİ", Color(0.32, 0.82, 0.92), 10, true, false, true)
+	lbl_approach_kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	content.add_child(lbl_approach_kicker)
+
+	lbl_approach_name = _create_label("GEZEGEN", Color(0.91, 0.97, 1.0), 20, true, false, true)
+	lbl_approach_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	content.add_child(lbl_approach_name)
+	content.add_child(_create_h_separator(Color(0.12, 0.65, 0.78, 0.38)))
+
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 2)
+	content.add_child(grid)
+	for heading in ["İRTİFA", "YÜZEY HIZI", "DİKEY HIZ", "İNİŞ EĞİMİ"]:
+		var tag := _create_label(heading, Color(0.50, 0.63, 0.72), 10, true)
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tag.custom_minimum_size.x = 112
+		grid.add_child(tag)
+		var value := _create_label("—", Color(0.88, 0.96, 1.0), 13, true, true)
+		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(value)
+		match heading:
+			"İRTİFA": lbl_approach_altitude = value
+			"YÜZEY HIZI": lbl_approach_speed = value
+			"DİKEY HIZ": lbl_approach_vertical = value
+			"İNİŞ EĞİMİ": lbl_approach_angle = value
+
+	lbl_approach_status = _create_label("YÜZEY HARİTALANIYOR", Color(1.0, 0.70, 0.24), 11, true)
+	lbl_approach_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	content.add_child(lbl_approach_status)
+	bar_approach_scan = _create_progress_bar(Color(0.12, 0.82, 0.88), Color(0.025, 0.10, 0.15))
+	bar_approach_scan.value = 0.0
+	content.add_child(bar_approach_scan)
 
 func _build_lod_debug_card() -> void:
 	lod_debug_card = PanelContainer.new()
@@ -501,6 +572,11 @@ func trigger_launch_transition(body_name: String, on_midpoint: Callable, on_fini
 		bar_trans.modulate.a = 0.0
 
 func _process(delta: float) -> void:
+	_approach_alpha = move_toward(_approach_alpha, _approach_target_alpha, delta * 5.5)
+	if is_instance_valid(approach_card):
+		approach_card.visible = _approach_alpha > 0.01
+		approach_card.modulate.a = _approach_alpha
+
 	if not is_transitioning:
 		return
 		
@@ -699,12 +775,109 @@ func update_hud(main_node: Node3D) -> void:
 
 	# Starfield Bilgi Kartını Güncelle
 	_update_starfield_card(main_node)
+	_update_approach_card(main_node, sc)
 
 	# 5. Gezegen LOD & Chunk Telemetri Kartı
 	_update_lod_debug_card(main_node)
 
 	# 6. Dinamik Eylemler ve Tuş Rozetleri
 	_update_action_badges(main_node, sc)
+
+func _get_approach_body(main_node: Node3D):
+	if main_node.get("is_landed") == true and main_node.get("landed_body") != null:
+		return main_node.landed_body
+	if main_node.get("is_landing_autopilot") == true and main_node.get("autopilot_target_body") != null:
+		return main_node.autopilot_target_body
+	var selected = null
+	if main_node.get("focus_target_body") != null:
+		selected = main_node.focus_target_body
+	elif main_node.get("followed_body") != null:
+		selected = main_node.followed_body
+	elif main_node.get("current_target_index") != null:
+		var index: int = main_node.current_target_index
+		if index >= 0 and index < main_node.universe.size():
+			selected = main_node.universe[index]
+	if selected != null and selected.type in ["PLANET", "MOON"]:
+		var selected_dist: float = selected.real_position.length()
+		if selected_dist <= selected.real_radius * 8.0:
+			return selected
+	var nearest = null
+	var nearest_ratio := INF
+	for body in main_node.active_system_bodies:
+		if body.type not in ["PLANET", "MOON"]:
+			continue
+		var ratio: float = body.real_position.length() / maxf(body.real_radius, 1.0)
+		if ratio <= 8.0 and ratio < nearest_ratio:
+			nearest = body
+			nearest_ratio = ratio
+	return nearest
+
+func _update_approach_card(main_node: Node3D, sc: Spacecraft) -> void:
+	var body = _get_approach_body(main_node)
+	var map_or_eva: bool = main_node.get("is_system_map_active") == true or main_node.get("is_eva_active") == true
+	_approach_target_alpha = 0.0 if body == null or map_or_eva else 1.0
+	if body == null or map_or_eva:
+		return
+
+	var center_distance: float = body.real_position.length()
+	var altitude: float = maxf(center_distance - body.real_radius, 0.0)
+	var rel_radius: float = center_distance / maxf(body.real_radius, 1.0)
+	var flight_speed: float = absf(float(main_node.get("flight_speed_mps")))
+	var radial_speed := 0.0
+	if main_node.get("is_landed") == true:
+		altitude = maxf(float(main_node.get("landed_vertical_offset")), 0.0)
+		radial_speed = float(main_node.get("landed_vertical_velocity"))
+	elif main_node.get("is_landing_autopilot") == true:
+		radial_speed = -flight_speed
+	elif main_node.get("player_velocity") is Vector3 and center_distance > 1.0:
+		radial_speed = (main_node.player_velocity as Vector3).dot((-body.real_position).normalized()) * -1.0
+
+	var up: Vector3 = (-body.real_position).normalized() if center_distance > 1.0 else Vector3.UP
+	var ship_up: Vector3 = sc.global_basis.y.normalized() if sc != null else up
+	var angle: float = rad_to_deg(acos(clampf(ship_up.dot(up), -1.0, 1.0)))
+	var scan_progress := clampf((8.0 - rel_radius) / 6.8, 0.0, 1.0) * 100.0
+	var sphere_mgr = main_node.get("sphere_chunk_manager")
+	if is_instance_valid(sphere_mgr) and sphere_mgr.has_method("is_active") and sphere_mgr.is_active():
+		scan_progress = maxf(scan_progress, 35.0)
+		if sphere_mgr.has_method("get_lod_stats"):
+			var chunk_count: int = sphere_mgr.get_lod_stats().get("total_chunks", 0)
+			scan_progress = maxf(scan_progress, clampf(float(chunk_count) / 96.0, 0.0, 1.0) * 100.0)
+	if main_node.get("is_landed") == true:
+		scan_progress = 100.0
+
+	var is_landing: bool = main_node.get("is_landing_autopilot") == true
+	lbl_approach_kicker.text = "İNİŞ PROTOKOLÜ" if is_landing else ("YÜZEY OPERASYONU" if main_node.is_landed else "YAKLAŞMA TELEMETRİSİ")
+	lbl_approach_name.text = str(body.name).to_upper()
+	lbl_approach_altitude.text = _format_compact_distance(altitude)
+	lbl_approach_speed.text = _format_speed(flight_speed)
+	lbl_approach_vertical.text = "%+.1f m/s" % radial_speed
+	lbl_approach_angle.text = "%.1f°" % angle
+	bar_approach_scan.value = scan_progress
+
+	if main_node.is_landed:
+		lbl_approach_status.text = "YÜZEY TEMASI  //  GEMİ PARKTA"
+		lbl_approach_status.modulate = Color(0.30, 0.94, 0.60)
+	elif is_landing and scan_progress >= 92.0:
+		lbl_approach_status.text = "İNİŞ KORİDORU HAZIR  //  ALÇALMA AKTİF"
+		lbl_approach_status.modulate = Color(0.30, 0.94, 0.60)
+	elif scan_progress >= 70.0:
+		lbl_approach_status.text = "YÜZEY ÇÖZÜMLENİYOR  //  %02d" % int(scan_progress)
+		lbl_approach_status.modulate = Color(0.26, 0.84, 0.94)
+	else:
+		lbl_approach_status.text = "ARAZİ TARAMASI  //  %02d" % int(scan_progress)
+		lbl_approach_status.modulate = Color(1.0, 0.70, 0.24)
+
+	# Detailed survey and approach telemetry compete for the same attention.
+	# Keep the compact flight context while a planet fills the view.
+	if is_instance_valid(starfield_card):
+		starfield_card.visible = false
+
+func _format_compact_distance(meters: float) -> String:
+	if meters >= 1000000.0:
+		return "%.2f Mm" % (meters / 1000000.0)
+	if meters >= 1000.0:
+		return "%.2f km" % (meters / 1000.0)
+	return "%.1f m" % meters
 
 func _update_lod_debug_card(main_node: Node3D) -> void:
 	if not is_instance_valid(lod_debug_card):
@@ -784,17 +957,11 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		
 	if main_node.get("is_eva_active") == true:
 		if main_node.get("is_near_ship_airlock") == true:
-			_add_badge("[E] GEMİYE BİN (HAVA KİLİDİ)", Color(0.1, 1.0, 0.5))
-		_add_badge("[WASD] HAREKET", Color(0.0, 0.85, 1.0))
-		_add_badge("[SPACE] JETPACK", Color(0.0, 0.85, 1.0))
+			_add_badge("[E] GEMİYE BİN", Color(0.1, 1.0, 0.5))
+		_add_badge("[WASD] YÜRÜ" if main_node.is_landed else "[WASD] İTİCİ", Color(0.0, 0.85, 1.0))
+		_add_badge("[SPACE] ZIPLA / JETPACK", Color(0.0, 0.85, 1.0))
 		_add_badge("[SHIFT] BOOST", Color(1.0, 0.6, 0.1))
-		_add_badge("[CTRL] ALÇAL", Color(0.0, 0.85, 1.0))
-		_add_badge("[X] FREN | [F] KAMERA", Color(0.5, 0.8, 1.0))
-		_add_badge("[L] FENER", Color(0.1, 1.0, 0.6))
-		_add_badge("[F8] LOD BİLGİ", Color(0.2, 1.0, 0.4) if show_lod_debug_card else Color(0.5, 0.5, 0.5))
-		if main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
-			_add_badge("[C] HEDEF KAPAT", Color(1.0, 0.45, 0.35))
-		_add_badge("[TAB] HUD GİZLE", Color(0.6, 0.6, 0.7))
+		_add_badge("[F] KAMERA  [L] FENER", Color(0.5, 0.8, 1.0))
 		return
 		
 	if sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
@@ -810,24 +977,23 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		
 	# Kokpit Sürüşü veya 3. Şahıs
 	if main_node.is_interstellar_autopilot or main_node.is_autopilot_active:
-		_add_badge("[G] HİPER HIZLANDIR (ÇİFT G)", Color(1.0, 0.2, 0.9))
+		if main_node.get("is_landing_autopilot") == true:
+			_add_badge("İNİŞ OTOPİLOTU", Color(0.1, 1.0, 0.5))
+		else:
+			_add_badge("[G] HİPER HIZLANDIR", Color(1.0, 0.2, 0.9))
 		_add_badge("[WASD] İPTAL ET", Color(1.0, 0.4, 0.3))
+		_add_badge("[F] KAMERA", Color(0.5, 0.8, 1.0))
 	else:
 		if main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
-			_add_badge("[G] OTOPİLOT SEYRİ", Color(0.1, 1.0, 0.5))
+			_add_badge("[G] OTOPİLOT", Color(0.1, 1.0, 0.5))
 			_add_badge("[C] HEDEF KAPAT", Color(1.0, 0.45, 0.35))
-			_add_badge("[CTRL+T] IŞINLAN", Color(1.0, 0.7, 0.2))
 		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
 			_add_badge("[E] KOLTUKTAN KALK", Color(0.0, 0.9, 1.0))
-		_add_badge("[B] SINIRLAR", Color(0.0, 0.85, 1.0) if main_node.show_chunk_borders else Color(0.5, 0.5, 0.5))
-		_add_badge("[V] LOD RENKLERİ", Color(0.2, 1.0, 0.4) if main_node.debug_lod_colors_active else Color(0.5, 0.5, 0.5))
-		_add_badge("[Z] TEL KAFES", Color(1.0, 0.9, 0.2) if main_node.is_wireframe_mode else Color(0.5, 0.5, 0.5))
-		_add_badge("[F8] LOD BİLGİ", Color(0.2, 1.0, 0.4) if show_lod_debug_card else Color(0.5, 0.5, 0.5))
-		_add_badge("[WASD] GEMİ SÜRÜŞÜ", Color(0.0, 0.85, 1.0))
-		_add_badge("[Q] ROLL", Color(0.0, 0.85, 1.0))
-		_add_badge("[F] KAMERA MODU", Color(0.8, 0.5, 1.0))
+		_add_badge("[WASD] UÇUŞ  [Q] ROLL", Color(0.0, 0.85, 1.0))
+		_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
 		_add_badge("[M] HARİTA", Color(1.0, 0.65, 0.1))
-		_add_badge("[TAB] HUD GİZLE", Color(0.6, 0.6, 0.7))
+	if show_lod_debug_card:
+		_add_badge("[B/V/Z] LOD DEBUG", Color(0.2, 1.0, 0.4))
 
 func _add_badge(text: String, color: Color) -> void:
 	var badge = PanelContainer.new()
