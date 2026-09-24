@@ -1457,7 +1457,7 @@ func _process(delta):
 			
 		var planet_r = landed_body.real_radius if landed_body != null else 6371000.0
 		var current_surface_dir = (base_landing_pos + local_x * landed_walk_offset.x + local_z * landed_walk_offset.y).normalized()
-		var local_surface_dir = current_surface_dir.rotated(Vector3.UP, -landed_body.rotation_angle)
+		var local_surface_dir = _body_world_to_local_dir(landed_body, current_surface_dir)
 		var h_ratio = 0.0
 		if noise != null:
 			h_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, local_surface_dir, planet_r)
@@ -1592,7 +1592,7 @@ func _process(delta):
 				var landing_dir = _compute_safe_landing_direction(approach_vec)
 				var height_at_landing = 0.0
 				if landing_noise != null:
-					var local_landing_dir = landing_dir.rotated(Vector3.UP, -autopilot_target_body.rotation_angle)
+					var local_landing_dir = _body_world_to_local_dir(autopilot_target_body, landing_dir)
 					var h_ratio = PlanetChunkSphere.sample_terrain_height_static(landing_noise, local_landing_dir, autopilot_target_body.real_radius)
 					height_at_landing = autopilot_target_body.real_radius * h_ratio
 				var landing_offset = landing_dir * (autopilot_target_body.real_radius + 2.5 + height_at_landing)
@@ -2255,10 +2255,22 @@ func _flv_clear_chunks() -> void:
 		sphere_chunk_manager.queue_free()
 		sphere_chunk_manager = null
 
-func _planet_signed_clearance(relative_position: Vector3, noise: FastNoiseLite, radius: float, guard: float) -> float:
+func _body_world_to_local_dir(body: CelestialBody, world_dir: Vector3) -> Vector3:
+	if body == null:
+		return world_dir
+	if is_instance_valid(body.visual_mesh):
+		var mesh_basis: Basis = body.visual_mesh.global_basis.orthonormalized()
+		if absf(mesh_basis.determinant()) > 0.0001:
+			return mesh_basis.inverse() * world_dir
+	if body.rotation_angle != 0.0:
+		return world_dir.rotated(Vector3.UP, -body.rotation_angle)
+	return world_dir
+
+func _planet_signed_clearance(relative_position: Vector3, noise: FastNoiseLite, radius: float, guard: float, body: CelestialBody = null) -> float:
 	var distance := safe_vector_length(relative_position)
 	var direction := safe_vector_normalized(relative_position) if distance > 0.001 else Vector3.UP
-	var terrain := PlanetChunkSphere.sample_terrain_height_static(noise, direction, radius) * radius
+	var local_dir := _body_world_to_local_dir(body, direction) if body != null else direction
+	var terrain := PlanetChunkSphere.sample_terrain_height_static(noise, local_dir, radius) * radius
 	return distance - (radius + terrain + guard)
 
 func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vector3 = Vector3.ZERO) -> void:
@@ -2294,8 +2306,8 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vect
 			noise = body.noise_albedo.noise
 
 		var safety_clearance = maxf(PLANET_COLLISION_GUARD, safe_vector_length(player_velocity) * delta * 1.5)
-		var end_clearance := _planet_signed_clearance(offset, noise, body.real_radius, safety_clearance)
-		var closest_clearance := _planet_signed_clearance(closest_offset, noise, body.real_radius, safety_clearance)
+		var end_clearance := _planet_signed_clearance(offset, noise, body.real_radius, safety_clearance, body)
+		var closest_clearance := _planet_signed_clearance(closest_offset, noise, body.real_radius, safety_clearance, body)
 		var collided := end_clearance <= 0.0
 		var contact_offset: Vector3 = offset
 
@@ -2307,7 +2319,7 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vect
 			for _iteration in range(14):
 				var mid_t := (low_t + high_t) * 0.5
 				var mid_offset: Vector3 = start_offset + movement * mid_t
-				if _planet_signed_clearance(mid_offset, noise, body.real_radius, safety_clearance) > 0.0:
+				if _planet_signed_clearance(mid_offset, noise, body.real_radius, safety_clearance, body) > 0.0:
 					low_t = mid_t
 				else:
 					high_t = mid_t
@@ -2316,7 +2328,8 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vect
 
 		if collided:
 			var normal_dir = safe_vector_normalized(contact_offset) if contact_offset.length_squared() > 0.001 else Vector3.UP
-			var terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, normal_dir, body.real_radius)
+			var local_normal = _body_world_to_local_dir(body, normal_dir)
+			var terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, local_normal, body.real_radius)
 			var min_dist = body.real_radius * (1.0 + terrain_ratio) + safety_clearance
 			# Zeminin altından veya dağların içinden geçmeyi KESİNLİKLE engelle
 			virtual_player_position = body_abs + normal_dir * min_dist
@@ -2999,7 +3012,7 @@ func _execute_landing(target: CelestialBody) -> void:
 	
 	var terrain_ratio = 0.0
 	if noise != null:
-		var local_landing_dir = landing_dir.rotated(Vector3.UP, -target.rotation_angle)
+		var local_landing_dir = _body_world_to_local_dir(target, landing_dir)
 		terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, local_landing_dir, target.real_radius)
 	var height_at_landing = target.real_radius * terrain_ratio
 	

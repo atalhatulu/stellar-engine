@@ -70,9 +70,10 @@ var _terrain_material: Material = null
 var _border_material: Material = null
 var _border_visible: bool = false
 var _builds_this_frame := 0
-# Chunk meshleri ana thread'de oluşturuluyor. Kare başına tek büyük mesh,
-# derin LOD geçişlerinde iki pahalı üretimin aynı kareye binmesini engeller.
-const MAX_BUILDS_PER_FRAME := 1
+# Chunk meshleri ana thread'de oluşturuluyor. Kare başına 2 mesh,
+# ana thread bütçesini 1.0 ms altında tutarken quadtree düğümlerini 2 karede
+# tamamlar ve takılma oluşturmaz.
+const MAX_BUILDS_PER_FRAME := 2
 var _is_active: bool = false
 var _body_radius: float = 1.0
 var _all_chunks: Dictionary = {}
@@ -226,21 +227,54 @@ func update(origin_offset: Vector3, mesh_pos: Vector3, visual_radius: float,
 	position = mesh_pos
 	scale = Vector3.ONE * visual_radius
 
+	# Yerel koordinat uzayına dönüştür (Gezegenin dönüşü, eksen eğikliği ve koordinat farkını sıfırlar)
+	var inv_basis: Basis = global_basis.orthonormalized().inverse() if absf(global_basis.determinant()) > 0.0001 else Basis.IDENTITY
+	var local_cam: Vector3 = inv_basis * (real_cam - real_center)
+	var local_cam_fwd: Vector3 = (inv_basis * cam_forward).normalized() if cam_forward.length_squared() > 0.001 else Vector3.ZERO
+
 	# 2. Hiyerarşik LOD değerlendirmesi
-	var lod_observer: Vector3
+	var local_lod_observer: Vector3
 	if focus_direction_override.length_squared() > 0.001:
-		var focus_dir := focus_direction_override.normalized()
-		_last_focus_direction = focus_dir
-		var altitude := maxf((real_cam - real_center).length() - _body_radius, 0.0)
-		lod_observer = real_center + focus_dir * (_body_radius + altitude)
+		var local_focus_dir := (inv_basis * focus_direction_override).normalized()
+		_last_focus_direction = local_focus_dir
+		var altitude := maxf(local_cam.length() - _body_radius, 0.0)
+		local_lod_observer = local_focus_dir * (_body_radius + altitude)
 	else:
-		lod_observer = _get_view_focused_observer(real_cam, real_center, cam_forward)
-	var prioritized_roots := _sorted_keys_by_distance(_root_keys, lod_observer, real_center)
+		local_lod_observer = _get_view_focused_observer_local(local_cam, local_cam_fwd)
+
+	var prioritized_roots := _sorted_keys_by_distance(_root_keys, local_lod_observer)
 	for root_index in range(prioritized_roots.size()):
 		var rkey = prioritized_roots[root_index]
 		if not _all_chunks.has(rkey):
 			continue
-		_evaluate_node(rkey, lod_observer, real_center, cam_forward, root_index == 0)
+		_evaluate_node(rkey, local_lod_observer, local_cam_fwd, root_index == 0)
+
+
+func _get_view_focused_observer_local(local_cam: Vector3, local_cam_fwd: Vector3) -> Vector3:
+	var center_distance := local_cam.length()
+	if center_distance < 1.0 or local_cam_fwd.length_squared() < 0.001:
+		_last_focus_direction = local_cam.normalized() if center_distance > 0.001 else Vector3.UP
+		return local_cam
+
+	var ray_dir := local_cam_fwd.normalized()
+	var cam_to_center := -local_cam
+	var along_ray := cam_to_center.dot(ray_dir)
+	var closest_on_ray := local_cam + ray_dir * maxf(along_ray, 0.0)
+	var focus_dir := closest_on_ray.normalized()
+
+	# Işın küreyi kesiyorsa gerçek ön yüz vuruşunu kullan. Kesmiyorsa ışına
+	# en yakın yüzey yönü, ufka bakarken kararlı bir odak noktası sağlar.
+	var discriminant := along_ray * along_ray - (cam_to_center.length_squared() - _body_radius * _body_radius)
+	if along_ray >= 0.0 and discriminant >= 0.0:
+		var hit_distance := along_ray - sqrt(discriminant)
+		var hit_point := local_cam + ray_dir * maxf(hit_distance, 0.0)
+		focus_dir = hit_point.normalized()
+	if focus_dir.length_squared() < 0.001:
+		focus_dir = local_cam.normalized() if center_distance > 0.001 else Vector3.UP
+
+	_last_focus_direction = focus_dir
+	var altitude := maxf(center_distance - _body_radius, 0.0)
+	return focus_dir * (_body_radius + altitude)
 
 
 func _get_view_focused_observer(real_cam: Vector3, real_center: Vector3, cam_forward: Vector3) -> Vector3:
@@ -272,7 +306,7 @@ func _get_view_focused_observer(real_cam: Vector3, real_center: Vector3, cam_for
 
 
 # ── Görüş alanı dışı ve ufuk arkası parçaları budama (Frustum & Horizon Culling) ──
-func _is_chunk_culled(cd: Dictionary, real_cam: Vector3, real_center: Vector3, cam_forward: Vector3) -> bool:
+func _is_chunk_culled(cd: Dictionary, real_cam: Vector3, real_center: Vector3 = Vector3.ZERO, cam_forward: Vector3 = Vector3.ZERO) -> bool:
 	# A centre-point test is not a valid visibility bound for a curved patch:
 	# it produced the planet-sized black wedge visible in approach screenshots.
 	# RenderingServer already frustum-culls each MeshInstance3D using its AABB.
@@ -291,13 +325,13 @@ func is_ready() -> bool:
 	return true
 
 
-func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_forward: Vector3 = Vector3.ZERO, prioritize: bool = false) -> void:
+func _evaluate_node(key: String, local_cam: Vector3, local_cam_fwd: Vector3 = Vector3.ZERO, prioritize: bool = false) -> void:
 	var cd = _all_chunks.get(key)
 	if cd == null:
 		return
 
 	# Görüş alanı dışı veya ufuk arkası parçaları ağaçtan buda
-	if _is_chunk_culled(cd, real_cam, real_center, cam_forward):
+	if _is_chunk_culled(cd, local_cam, Vector3.ZERO, local_cam_fwd):
 		_set_visible(cd, false)
 		_hide_all_descendants(key, cd.level, cd.li, cd.lj)
 		cd["is_subdivided"] = false
@@ -310,7 +344,7 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 		_hide_all_descendants(key, cd.level, cd.li, cd.lj)
 		return
 
-	var dist = _chunk_surface_dist(cd, real_cam, real_center)
+	var dist = _chunk_surface_dist(cd, local_cam)
 	var rel = dist / max(_body_radius, 1.0)
 
 	var was_subdivided = cd.get("is_subdivided", false)
@@ -320,12 +354,15 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 	var thresh = LEVEL_MERGE_THRESHOLDS[idx] if was_subdivided else LEVEL_SUBDIV_THRESHOLDS[idx]
 	
 	# Kamera bakış yönüne öncelik veren quadtree bütçesi (Grup 4)
+	# Kameranın hemen yakınındaki/altındaki parçalar (rel < 0.003) oyuncu ufka baksa bile
+	# ayak altı/gövde altı detayının düşmemesi için sınırlanmaz.
 	var max_allowed_level = MAX_LEVEL
-	if cam_forward.length_squared() > 0.001:
+	var is_nearby = rel < 0.003
+	if not is_nearby and local_cam_fwd.length_squared() > 0.001:
 		var cdir = _chunk_center_dir(cd.level, cd.li, cd.lj)
-		var chunk_pos = real_center + cdir * _body_radius
-		var cam_to_chunk = (chunk_pos - real_cam).normalized()
-		var forward_dot = cam_forward.normalized().dot(cam_to_chunk)
+		var chunk_pos = cdir * _body_radius
+		var cam_to_chunk = (chunk_pos - local_cam).normalized()
+		var forward_dot = local_cam_fwd.normalized().dot(cam_to_chunk)
 		if forward_dot < -0.25:
 			# Kamera arkasındaki parçalar için quadtree bütçe sınırlaması (LOD 4 tavanı)
 			max_allowed_level = 4
@@ -347,9 +384,9 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 			# Yalnızca aktif yapraklar görünür olacak şekilde çocukları değerlendir
 			var ckeys = _child_keys(cd.level, cd.li, cd.lj)
 			if prioritize:
-				ckeys = _sorted_keys_by_distance(ckeys, real_cam, real_center)
+				ckeys = _sorted_keys_by_distance(ckeys, local_cam)
 			for child_index in range(ckeys.size()):
-				_evaluate_node(ckeys[child_index], real_cam, real_center, cam_forward, prioritize and child_index == 0)
+				_evaluate_node(ckeys[child_index], local_cam, local_cam_fwd, prioritize and child_index == 0)
 			return
 		else:
 			# Çocuklar henüz GPU'da oluşmadıysa ebeveyni ASLA gizleme (boşluk kalmasını önler)
@@ -368,13 +405,13 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 		_hide_all_descendants(key, cd.level, cd.li, cd.lj)
 
 
-func _chunk_surface_dist(cd: Dictionary, real_cam: Vector3, real_center: Vector3) -> float:
+func _chunk_surface_dist(cd: Dictionary, observer: Vector3, center: Vector3 = Vector3.ZERO) -> float:
 	var dir = _chunk_center_dir(cd.level, cd.li, cd.lj)
 	# LOD uzaklığını deniz seviyesi küresinden değil, üretilmiş arazinin
 	# gerçek yarıçapından ölç. Dağın üzerinde duran kamera aksi halde arazi
 	# yüksekliği kadar uzakta sanılıyor ve son seviye açılmıyordu.
 	var terrain_radius = _body_radius * (1.0 + _sample_terrain_height(dir, cd.level))
-	var pos = real_center + dir * terrain_radius
+	var pos = center + dir * terrain_radius
 	# Merkez uzaklığı küçük parçalarda yeterli olsa da kamera chunk kenarına
 	# yaklaştığında gerçek yüzeyi kilometrelerce uzakta sanıyordu. Chunk'ın
 	# küresel kapladığı alanı bir sınır yarıçapı olarak çıkar; böylece kameranın
@@ -385,7 +422,7 @@ func _chunk_surface_dist(cd: Dictionary, real_cam: Vector3, real_center: Vector3
 	var center_lat = -PI * 0.5 + (float(cd.li) + 0.5) * (PI / float(gs.x))
 	var angular_radius = sqrt(half_lat * half_lat + pow(half_lon * cos(center_lat), 2.0))
 	var patch_radius = _body_radius * angular_radius
-	return maxf((pos - real_cam).length() - patch_radius, 0.0)
+	return maxf((pos - observer).length() - patch_radius, 0.0)
 
 
 func _ensure_children(cd: Dictionary) -> bool:
@@ -419,7 +456,7 @@ func _child_keys(level: int, li: int, lj: int) -> Array[String]:
 	return keys
 
 
-func _sorted_keys_by_distance(keys: Array[String], observer: Vector3, center: Vector3) -> Array[String]:
+func _sorted_keys_by_distance(keys: Array[String], observer: Vector3, center: Vector3 = Vector3.ZERO) -> Array[String]:
 	var sorted := keys.duplicate()
 	sorted.sort_custom(func(a: String, b: String) -> bool:
 		var a_chunk = _all_chunks.get(a)
