@@ -34,6 +34,24 @@ static func clear(host: Node) -> void:
 		var pool = host.get("star_visual_pool")
 		if pool != null:
 			pool.pinned_star_data = null
+			if host.has_method("get_player_galactic_position") and host.get("camera") != null and host.get("sector_manager") != null:
+				var cam = host.get("camera")
+				var cam_fwd = -cam.transform.basis.z if cam != null else Vector3.FORWARD
+				var active_id = str(host.get("active_star_unique_id")) if host.get("active_star_unique_id") != null else ""
+				pool.rebind(host.get("sector_manager"), host.get_player_galactic_position(), cam_fwd, active_id)
+	if available.has("hud"):
+		var hud = host.get("hud")
+		if hud != null:
+			if hud.has_method("update_hud"):
+				hud.update_hud(host)
+			if "starfield_card" in hud:
+				var card = hud.get("starfield_card")
+				if card is CanvasItem:
+					card.visible = false
+			if "target_card" in hud:
+				var card = hud.get("target_card")
+				if card is CanvasItem:
+					card.visible = false
 	for control_name in ["target_reticle", "target_tag_label"]:
 		if available.has(control_name):
 			var control = host.get(control_name)

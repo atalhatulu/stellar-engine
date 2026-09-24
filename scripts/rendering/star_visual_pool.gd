@@ -324,9 +324,8 @@ func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: flo
 func update_pool(delta: float, sector_manager, player_gal_pos: Vector3, cam_forward: Vector3, fov: float, viewport_height: float, sector_changed: bool, p_active_star_id: String = "", p_pinned_star_data = null, surface_up: Vector3 = Vector3.ZERO) -> void:
 	if p_active_star_id != "":
 		active_star_id = p_active_star_id
-	if p_pinned_star_data != null:
-		pinned_star_data = p_pinned_star_data
-	elif active_star_id != "" and pinned_star_data != null and pinned_star_data.unique_id == active_star_id:
+	pinned_star_data = p_pinned_star_data
+	if active_star_id != "" and pinned_star_data != null and pinned_star_data.unique_id == active_star_id:
 		pinned_star_data = null
 		
 	rebind_timer += delta

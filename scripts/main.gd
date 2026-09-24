@@ -2766,11 +2766,6 @@ func _check_active_star_transition() -> void:
 		# Yeni yıldıza gerçekten yerel sistem mesafesinde miyiz VE mevcut yıldızdan daha mı yakınız?
 		if min_dist_sq_ly <= SYSTEM_LOCAL_ENTER_RADIUS_SQ_LY and min_dist_sq_ly < cur_dist_sq_ly * 0.7225:
 			_transition_to_star_data(closest_star_data)
-	elif closest_star_data != null and closest_star_data.unique_id == active_star_unique_id:
-		if not is_local_system_loaded and min_dist_sq_ly <= SYSTEM_LOCAL_ENTER_RADIUS_SQ_LY:
-			_update_active_system_bodies()
-			if virtual_player_position.length_squared() < 1.0:
-				_position_at_system_vantage(active_star, Vector3.BACK)
 
 func _transition_to_star_data(new_star_data) -> void:
 	_star_transition_cooldown = 1.0 # 1 saniye geçiş kilidi
