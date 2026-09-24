@@ -1642,23 +1642,28 @@ func _process(delta):
 					virtual_player_position = body_abs_pos + approach_dir * current_dist
 			
 			if is_landing_autopilot:
-				# İniş yaklaşmasında kameranın yüzeye DÜZ inmesi için yüzey normali ve teğet matrisi
+				# Test sahnesi (PlanetLandingLab) standardında ufuk ve yüzey hizalaması
 				var current_rel = virtual_player_position - body_abs_pos
-				var current_up = _compute_safe_landing_direction(current_rel)
-				var prev_fwd = -autopilot_start_basis.z
-				var fwd_proj = prev_fwd - prev_fwd.project(current_up)
-				var view_fwd: Vector3
-				if fwd_proj.length_squared() > 0.001:
-					view_fwd = fwd_proj.normalized()
-				else:
-					var ref_axis = Vector3.FORWARD if absf(current_up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
-					view_fwd = (ref_axis - ref_axis.project(current_up)).normalized()
-				var view_right = view_fwd.cross(current_up).normalized()
-				var view_back = -view_fwd
-				var target_landing_basis = Basis(view_right, current_up, view_back).orthonormalized()
+				var radial_up := current_rel.normalized()
+				var radius_ratio := current_rel.length() / maxf(autopilot_target_body.real_radius, 1.0)
 				
-				# Uzaydaki açıdan yüzeye dik/düz iniş açısına slerp ile pürüzsüz geçiş
-				camera.transform.basis = autopilot_start_basis.slerp(target_landing_basis, ease_t).orthonormalized()
+				if radius_ratio < 1.25:
+					# Yüzeye yakın: Ufka ve dağlara bakış
+					var tangent := radial_up.cross(Vector3.UP).normalized()
+					if tangent.length_squared() < 0.01:
+						tangent = radial_up.cross(Vector3.RIGHT).normalized()
+					var surface_forward := (tangent - radial_up * 0.08).normalized()
+					var surface_right := surface_forward.cross(radial_up).normalized()
+					var target_landing_basis := Basis(surface_right, radial_up, -surface_forward).orthonormalized()
+					var blend := clampf((1.25 - radius_ratio) / 0.25, 0.0, 1.0)
+					camera.transform.basis = camera.transform.basis.slerp(target_landing_basis, blend * 8.0 * delta).orthonormalized()
+				else:
+					# Yüksek irtifa: Gezegene doğru bakarak yaklaş
+					var view_up := Vector3.UP
+					if absf(radial_up.dot(view_up)) > 0.94:
+						view_up = Vector3.RIGHT
+					var target_look := Basis.looking_at(-radial_up, view_up).orthonormalized()
+					camera.transform.basis = camera.transform.basis.slerp(target_look, 5.0 * delta).orthonormalized()
 				camera.rot_z = 0.0
 			else:
 				# Normal sistem otopilotunda hedefe bakış
@@ -1756,17 +1761,20 @@ func _process(delta):
 	var camera_3d = camera.get_node_or_null("Camera3D")
 	if camera_3d:
 		var near_planet: bool = false
+		var max_near_radius: float = 0.0
 		for b in active_system_bodies:
-			if b.type != "STAR" and safe_vector_length(b.real_position) < b.real_radius * 6.5:
-				near_planet = true
-				break
+			if b.type != "STAR":
+				var b_dist = safe_vector_length(b.get_absolute_position(active_star) - virtual_player_position)
+				if b_dist < b.real_radius * 7.5:
+					near_planet = true
+					max_near_radius = maxf(max_near_radius, b.real_radius)
 		var close_view: bool = is_landed
 		var target_near = 0.3 if close_view else 1.0
 		if camera_3d.near != target_near:
 			camera_3d.near = target_near
-		var target_far = 3000000.0 if near_planet else 100000.0
-		if is_landed:
-			target_far = 800000.0
+		var target_far = maxf(max_near_radius * 16.0, 100000000.0) if near_planet else 100000.0
+		if is_landed and landed_body != null:
+			target_far = maxf(landed_body.real_radius * 6.0, 50000000.0)
 		if camera_3d.far != target_far:
 			camera_3d.far = target_far
 	
@@ -1819,10 +1827,8 @@ func _process(delta):
 			closest_body_dist = dist
 			closest_body_name = body.name
 
-		# Gerçek 1:1 metre yüzey ölçeğine iniş otopilotunda, yüzeydeyken veya yakın yaklaşmada (1.35R) geçilir.
-		# Daha uzaktayken (1.35R - sonsuz) cisimler visual_distance_limit (10 km) içinde tutularak
-		# kameranın far clip düzlemi dışına düşüp kaybolması kesinlikle engellenir.
-		var near_surface_render := is_landed or (is_landing_autopilot and autopilot_target_body == body) or (body.type != "STAR" and dist < body.real_radius * 1.35)
+		# Gerçek 1:1 metre yüzey ölçeğine iniş/otopilot yaklaşmasında, yüzeydeyken veya yörüngede (6.5R) geçilir.
+		var near_surface_render := is_landed or (autopilot_target_body == body and (is_autopilot_active or is_landing_autopilot)) or (body.type != "STAR" and dist < body.real_radius * 6.5)
 		var projection := CelestialRenderScale.project_body(
 			body, dist, viewport_height, fov, visual_distance_limit,
 			visual_scale_multiplier, near_surface_render
@@ -2154,9 +2160,9 @@ func _flv_update_flyover_lod() -> void:
 		_flv_clear_chunks()
 		return
 
-	# Chunk'ları yörünge yaklaşmasında (3.5R - 4.5R) veya iniş/otopilot yaklaşmasında hazırla
+	# Chunk'ları yörünge yaklaşmasında (6.5R'ye kadar) veya iniş/otopilot yaklaşmasında hazırla
 	var dist_to_target = safe_vector_length(target.real_position)
-	var max_prep_dist = target.real_radius * (4.5 if (is_autopilot_active and autopilot_target_body == target) else 3.8)
+	var max_prep_dist = target.real_radius * 6.5
 	if not is_landed and not is_landing_autopilot and dist_to_target > max_prep_dist:
 		_flv_clear_chunks()
 		return
@@ -2198,13 +2204,19 @@ func _flv_update_flyover_lod() -> void:
 	sphere_chunk_manager.update(Vector3.ZERO, mesh.global_position, visual_radius,
 		virtual_player_position, body_abs_pos, cam_fwd, render_focus_dir)
 
-	# Makro küre ile prosedürel arazi arasında kesintisiz ve %100 OPAK geçiş
-	# Yörünge yüksekliğinden (3.5R) itibaren 3D küresel LOD devreye girer.
-	var use_chunk = is_landed or is_landing_autopilot or (sphere_chunk_manager.is_ready() and dist_to_target <= target.real_radius * 3.5)
-	sphere_chunk_manager.visible = use_chunk
-	sphere_chunk_manager.set_visibility_alpha(1.0)
-	target.visual_mesh.transparency = 0.0
-	target.visual_mesh.visible = not use_chunk
+	# Makro küre ile prosedürel arazi arasında test sahnesi (PlanetLandingLab) standardında pürüzsüz geçiş
+	var radius_ratio: float = dist_to_target / maxf(target.real_radius, 1.0)
+	var terrain_blend: float = 1.0 if (is_landed or is_landing_autopilot) else smoothstep(0.0, 1.0, clampf((5.5 - radius_ratio) / 2.75, 0.0, 1.0))
+	
+	if terrain_blend > 0.001 and sphere_chunk_manager.is_ready():
+		sphere_chunk_manager.visible = true
+		sphere_chunk_manager.set_visibility_alpha(terrain_blend)
+		target.visual_mesh.transparency = terrain_blend
+		target.visual_mesh.visible = terrain_blend < 0.999
+	else:
+		sphere_chunk_manager.visible = false
+		target.visual_mesh.transparency = 0.0
+		target.visual_mesh.visible = true
 
 
 func _flv_render_focus_direction(view_camera: Camera3D, center: Vector3, radius: float, forward: Vector3) -> Vector3:
