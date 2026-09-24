@@ -1769,13 +1769,21 @@ func _process(delta):
 				if b_dist < b.real_radius * 7.5:
 					near_planet = true
 					max_near_radius = maxf(max_near_radius, b.real_radius)
-		var close_view: bool = is_landed
-		var target_near = 0.3 if close_view else 1.0
+		var target_near: float
+		var target_far: float
+		
+		if is_landed:
+			target_near = 0.1
+			target_far = 250000.0 # 250 km: Yüzey arazi ve dağ ufku (far/near = 2.5e6, Vulkan culler kararlı)
+		elif near_planet:
+			target_near = 10.0
+			target_far = maxf(max_near_radius * 4.5, 25000000.0) # Yörüngede tam gezegen derinliği (far/near <= 2.5e6)
+		else:
+			target_near = 0.5
+			target_far = 100000.0 # 100 km sıkıştırılmış göksel kabuk (far/near = 2.0e5)
+			
 		if camera_3d.near != target_near:
 			camera_3d.near = target_near
-		var target_far = maxf(max_near_radius * 16.0, 100000000.0) if near_planet else 100000.0
-		if is_landed and landed_body != null:
-			target_far = maxf(landed_body.real_radius * 6.0, 50000000.0)
 		if camera_3d.far != target_far:
 			camera_3d.far = target_far
 	
@@ -3077,7 +3085,7 @@ func _execute_landing(target: CelestialBody) -> void:
 	# Uzaydaki derin uzay nebulası, bulutsular ve yıldız alanları gezegen atmosferinde gizlenir
 	var camera_3d = camera.camera_node if (camera != null and "camera_node" in camera) else (camera.get_node_or_null("Camera3D") if camera != null else null)
 	if camera_3d:
-		camera_3d.near = 0.05
+		camera_3d.near = 0.1
 		if camera_3d.environment:
 			var env = camera_3d.environment
 			if target.has_atmosphere:
@@ -3130,7 +3138,7 @@ func _execute_landing(target: CelestialBody) -> void:
 func _launch_from_planet() -> void:
 	var cam_3d = camera.camera_node if (camera != null and "camera_node" in camera) else (camera.get_node_or_null("Camera3D") if camera != null else null)
 	if cam_3d:
-		cam_3d.near = 0.3
+		cam_3d.near = 0.5
 	if not is_landed or landed_body == null:
 		return
 		
