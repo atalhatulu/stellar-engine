@@ -24,7 +24,7 @@
 ## Grup 4 — Gezegen LOD ve kesintisiz yüzey
 
 - [x] Küre görünümünden arazi chunk'larına ekran alanına göre kademeli geçiş
-- [ ] Kamera bakış yönüne öncelik veren quadtree bütçesi
+- [x] Kamera bakış yönüne öncelik veren quadtree bütçesi
 - [x] Görsel yüzey ve çarpışma yüksekliğini aynı örnekleyiciden üretmek
 
 ## Grup 5 — Teleskop, hedefleme ve kozmik harita

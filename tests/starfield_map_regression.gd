@@ -16,6 +16,7 @@ func run() -> void:
 	scene.seed_value = 12345
 	scene.enable_mid_field = false
 	scene.enable_deep_field = false
+	scene.enable_survey_system = false
 	root.add_child(scene)
 	scene.set_process(false)
 

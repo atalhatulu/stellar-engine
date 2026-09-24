@@ -15,7 +15,7 @@ deep_field_star_count = null
 debug_star_system_count = null
 seed_value = 1
 run_startup_tests = null
-enable_survey_system = false
+enable_survey_system = true
 
 [node name="Player" parent="." unique_id=1912709154 instance=ExtResource("3_player")]
 

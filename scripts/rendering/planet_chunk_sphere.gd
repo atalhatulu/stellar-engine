@@ -318,7 +318,24 @@ func _evaluate_node(key: String, real_cam: Vector3, real_center: Vector3, cam_fo
 	var max_idx = min(LEVEL_MERGE_THRESHOLDS.size() - 1, LEVEL_SUBDIV_THRESHOLDS.size() - 1)
 	var idx = clampi(level, 0, max_idx)
 	var thresh = LEVEL_MERGE_THRESHOLDS[idx] if was_subdivided else LEVEL_SUBDIV_THRESHOLDS[idx]
-	var should_subdivide = (level < MAX_LEVEL and rel < thresh)
+	
+	# Kamera bakış yönüne öncelik veren quadtree bütçesi (Grup 4)
+	var max_allowed_level = MAX_LEVEL
+	if cam_forward.length_squared() > 0.001:
+		var cdir = _chunk_center_dir(cd.level, cd.li, cd.lj)
+		var chunk_pos = real_center + cdir * _body_radius
+		var cam_to_chunk = (chunk_pos - real_cam).normalized()
+		var forward_dot = cam_forward.normalized().dot(cam_to_chunk)
+		if forward_dot < -0.25:
+			# Kamera arkasındaki parçalar için quadtree bütçe sınırlaması (LOD 4 tavanı)
+			max_allowed_level = 4
+			thresh *= 0.65
+		elif forward_dot < 0.15:
+			# Çevresel/yan bakış parçaları için bütçe sınırlaması (LOD 7 tavanı)
+			max_allowed_level = 7
+			thresh *= 0.85
+
+	var should_subdivide = (level < max_allowed_level and rel < thresh)
 
 	if should_subdivide:
 		# Çocukların tümünün üretilmiş ve mesh'lerinin hazır olduğundan emin ol
