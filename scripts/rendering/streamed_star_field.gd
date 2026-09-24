@@ -33,6 +33,8 @@ var _old_nodes: Array[MultiMeshInstance3D] = []
 var _old_material: ShaderMaterial
 var _fade := 1.0
 var _last_tick := 0
+var render_dist_min_ratio: float = 0.91
+var render_dist_max_ratio: float = 0.94
 
 func configure(shader_path: String, region_size: float, minimum: float, maximum: float,
 		chunks: int, capacity: int) -> void:
@@ -172,9 +174,26 @@ func update_renderer(camera: Node3D, player_gal_pos_meters: Vector3) -> void:
 	var opacity := smoothstep(0.0, 1.0, _fade)
 	shader_mat.set_shader_parameter("u_player_gal_ly", player)
 	shader_mat.set_shader_parameter("u_layer_opacity", opacity)
+	var cam_far := 100000.0
+	if camera is Camera3D:
+		cam_far = (camera as Camera3D).far
+	elif is_instance_valid(camera) and camera.has_node("Camera3D"):
+		var c = camera.get_node("Camera3D") as Camera3D
+		if c != null:
+			cam_far = c.far
+	elif "camera_node" in camera and camera.camera_node is Camera3D:
+		cam_far = (camera.camera_node as Camera3D).far
+
+	var r_min: float = cam_far * render_dist_min_ratio
+	var r_max: float = cam_far * render_dist_max_ratio
+	shader_mat.set_shader_parameter("u_render_dist_min", r_min)
+	shader_mat.set_shader_parameter("u_render_dist_max", r_max)
+
 	if _old_material != null:
 		_old_material.set_shader_parameter("u_player_gal_ly", player)
 		_old_material.set_shader_parameter("u_layer_opacity", 1.0 - opacity)
+		_old_material.set_shader_parameter("u_render_dist_min", r_min)
+		_old_material.set_shader_parameter("u_render_dist_max", r_max)
 	max_update_usec = maxi(max_update_usec, Time.get_ticks_usec() - started)
 
 # Explicit blocking path for offline diagnostics only; gameplay never calls it.

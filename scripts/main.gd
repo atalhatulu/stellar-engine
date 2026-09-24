@@ -1742,12 +1742,15 @@ func _process(delta):
 	if camera_3d:
 		var near_planet: bool = false
 		var max_near_radius: float = 0.0
+		var max_needed_far: float = 0.0
 		for b in active_system_bodies:
 			if b.type != "STAR":
 				var b_dist = safe_vector_length(b.get_absolute_position(active_star) - virtual_player_position)
-				if b_dist < b.real_radius * 7.5:
+				var is_approaching_b = (autopilot_target_body == b and (is_autopilot_active or is_landing_autopilot)) or (b == _chunk_target)
+				if b_dist < b.real_radius * 12.0 or is_approaching_b:
 					near_planet = true
 					max_near_radius = maxf(max_near_radius, b.real_radius)
+					max_needed_far = maxf(max_needed_far, (b_dist + b.real_radius * 2.5) * 1.35)
 		var target_near: float
 		var target_far: float
 		
@@ -1755,8 +1758,8 @@ func _process(delta):
 			target_near = 0.1
 			target_far = 250000.0 # 250 km: Yüzey arazi ve dağ ufku (far/near = 2.5e6, Vulkan culler kararlı)
 		elif near_planet:
-			target_near = 10.0
-			target_far = maxf(max_near_radius * 4.5, 25000000.0) # Yörüngede tam gezegen derinliği (far/near <= 2.5e6)
+			target_near = 1.0
+			target_far = maxf(maxf(max_near_radius * 16.0, 50000000.0), max_needed_far) # Yörüngede ve yaklaşmada gezegenin tamamını kapsar
 		else:
 			target_near = 0.5
 			target_far = 100000.0 # 100 km sıkıştırılmış göksel kabuk (far/near = 2.0e5)
@@ -1854,9 +1857,7 @@ func _process(delta):
 				if bmat != null:
 					bmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 			if is_instance_valid(body.atmosphere_mesh):
-				body.atmosphere_mesh.global_position = body.visual_mesh.global_position
-				body.atmosphere_mesh.scale = Vector3.ONE * final_scale
-				body.atmosphere_mesh.visible = body.visual_mesh.visible and dist < body.max_visibility_distance
+				body.atmosphere_mesh.visible = false
 			if is_instance_valid(body.lod_sprite):
 				body.lod_sprite.visible = false
 			if is_instance_valid(body.orbit_line_mesh):
@@ -2061,20 +2062,21 @@ func _process(delta):
 		if active_star != null:
 			active_star_coord = sector_manager.get_sector_coord(Vector3(active_star.stellar_x, active_star.stellar_y, active_star.stellar_z))
 		var sector_changed = streaming_manager.update(gal_pos, active_star_coord) if streaming_manager != null else sector_manager.update_player_position(gal_pos, active_star_coord, 1500)
+		var active_cam: Node3D = camera_3d if camera_3d != null else (camera.camera_node if (camera != null and "camera_node" in camera) else camera)
+		var current_far: float = camera_3d.far if camera_3d != null else 100000.0
 		if star_visual_pool != null:
 			if camera != null:
 				star_visual_pool.global_position = camera.global_position
+			star_visual_pool.visual_distance_limit = current_far * 0.88
 			var surface_normal = (virtual_player_position - landed_body.get_absolute_position(active_star)).normalized() if (is_landed and landed_body != null) else Vector3.ZERO
 			star_visual_pool.update_pool(delta, sector_manager, gal_pos, cam_forward, fov, viewport_height, sector_changed, active_star_unique_id, targeted_star_data, surface_normal)
 			
 		# GPU Mid-Field Yıldız Katmanını Güncelle (Aşama 7A: Gerçek Mesafe-Bazlı Paralaks)
 		if mid_field_renderer != null:
-			var active_cam: Node3D = camera_3d if camera_3d != null else camera
 			mid_field_renderer.update_renderer(active_cam, gal_pos)
 			
 		# GPU Deep-Field Gerçek Yıldız Katmanını Güncelle (Aşama 7B: 2.500-25.000 LY)
 		if deep_field_renderer != null:
-			var active_cam: Node3D = camera_3d if camera_3d != null else camera
 			deep_field_renderer.update_renderer(active_cam, gal_pos)
 			
 		# Yıldız sistemi sınır geçiş kontrolü (Aşama 4: Histerezisli Akıllı Geçiş - Saniyede ~6.6 kez)
@@ -2186,7 +2188,7 @@ func _flv_update_flyover_lod() -> void:
 
 	# Makro küre ile prosedürel arazi arasında şeffaflık/dither olmaksızın keskin ve opak LOD değişimi
 	var radius_ratio: float = dist_to_target / maxf(target.real_radius, 1.0)
-	var use_chunk_terrain := is_landed or is_landing_autopilot or (radius_ratio <= 2.2)
+	var use_chunk_terrain := is_landed or is_landing_autopilot or (radius_ratio <= 3.8)
 	
 	if use_chunk_terrain and sphere_chunk_manager.is_ready():
 		sphere_chunk_manager.visible = true

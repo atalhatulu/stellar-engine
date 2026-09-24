@@ -7,5 +7,7 @@ const MAX_DIST_LY := 25000.0
 const CHUNK_COUNT := 5
 
 func _init() -> void:
+	render_dist_min_ratio = 0.94
+	render_dist_max_ratio = 0.98
 	configure("res://shaders/deep_field_stars.gdshader", REGION_SIZE_LY,
 		MIN_DIST_LY, MAX_DIST_LY, CHUNK_COUNT, 50000)
