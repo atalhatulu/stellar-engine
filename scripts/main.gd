@@ -1742,15 +1742,12 @@ func _process(delta):
 	if camera_3d:
 		var near_planet: bool = false
 		var max_near_radius: float = 0.0
-		var max_needed_far: float = 0.0
 		for b in active_system_bodies:
 			if b.type != "STAR":
 				var b_dist = safe_vector_length(b.get_absolute_position(active_star) - virtual_player_position)
-				var is_approaching_b = (autopilot_target_body == b and (is_autopilot_active or is_landing_autopilot)) or (b == _chunk_target)
-				if b_dist < b.real_radius * 12.0 or is_approaching_b:
+				if b_dist < b.real_radius * 7.5:
 					near_planet = true
 					max_near_radius = maxf(max_near_radius, b.real_radius)
-					max_needed_far = maxf(max_needed_far, (b_dist + b.real_radius * 2.5) * 1.35)
 		var target_near: float
 		var target_far: float
 		
@@ -1758,8 +1755,8 @@ func _process(delta):
 			target_near = 0.1
 			target_far = 250000.0 # 250 km: Yüzey arazi ve dağ ufku (far/near = 2.5e6, Vulkan culler kararlı)
 		elif near_planet:
-			target_near = 1.0
-			target_far = maxf(maxf(max_near_radius * 16.0, 50000000.0), max_needed_far) # Yörüngede ve yaklaşmada gezegenin tamamını kapsar
+			target_far = maxf(max_near_radius * 7.8, 25000000.0) # Yörüngede tam gezegen derinliği
+			target_near = maxf(target_far / 2400000.0, 10.0) # far/near <= 2.4e6 (Vulkan culler kararlı)
 		else:
 			target_near = 0.5
 			target_far = 100000.0 # 100 km sıkıştırılmış göksel kabuk (far/near = 2.0e5)
@@ -1818,8 +1815,8 @@ func _process(delta):
 			closest_body_dist = dist
 			closest_body_name = body.name
 
-		# Gerçek 1:1 metre yüzey ölçeğine iniş/otopilot yaklaşmasında, yüzeydeyken veya yörüngede (6.5R) geçilir.
-		var near_surface_render := is_landed or (autopilot_target_body == body and (is_autopilot_active or is_landing_autopilot)) or (body.type != "STAR" and dist < body.real_radius * 6.5)
+		# Gerçek 1:1 metre yüzey ölçeğine iniş otopilotunda, yüzeydeyken veya yörüngede (6.5R) geçilir.
+		var near_surface_render := is_landed or (autopilot_target_body == body and is_landing_autopilot) or (body.type != "STAR" and dist < body.real_radius * 6.5)
 		var projection := CelestialRenderScale.project_body(
 			body, dist, viewport_height, fov, visual_distance_limit,
 			visual_scale_multiplier, near_surface_render
