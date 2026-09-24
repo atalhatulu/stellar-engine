@@ -11,15 +11,20 @@ render_mode blend_add, depth_draw_never, cull_disabled, unshaded;
 uniform vec3 u_observer_pos_ly = vec3(0.0);
 uniform vec3 u_anchor_pos_ly = vec3(0.0);
 uniform float u_render_dist_min = 35000.0;
-uniform float u_render_dist_max = 240000.0;
+// Kamera far düzleminin içinde güvenli pay bırakılır; aksi halde uzak alan
+// galaksileri ekranın bir kısmında kırpılarak kaybolur.
+uniform float u_render_dist_max = 180000.0;
 uniform float u_galaxy_pixel_size : hint_range(0.5, 8.0) = 2.4;
 uniform float u_layer_opacity : hint_range(0.0, 1.0) = 1.0;
 uniform float u_brightness_boost : hint_range(0.5, 4.0) = 1.6;
+uniform vec3 u_active_galaxy_pos_ly = vec3(0.0);
+uniform float u_active_exclusion_radius_ly = 0.0;
 
 varying vec4 v_color;
 varying float v_morph_type;
 varying float v_lod_ratio;
 varying float v_dist_fade;
+varying float v_active_visibility;
 
 void vertex() {
 	vec2 quad_uv_offset = VERTEX.xy;
@@ -37,6 +42,8 @@ void vertex() {
 	
 	// Gözlemcinin mutlak kozmik konumuna göre bağıl vektör
 	vec3 rel_gal_ly = (u_anchor_pos_ly + gal_local_ly) - u_observer_pos_ly;
+	float active_distance_ly = length((u_anchor_pos_ly + gal_local_ly) - u_active_galaxy_pos_ly);
+	v_active_visibility = step(u_active_exclusion_radius_ly, active_distance_ly);
 	float dist_ly = length(rel_gal_ly);
 	vec3 dir = rel_gal_ly / max(dist_ly, 0.0001);
 	
@@ -124,5 +131,5 @@ void fragment() {
 	float tonemapped = final_intensity / (1.0 + final_intensity * 0.25);
 	
 	ALBEDO = tint * tonemapped * edge;
-	ALPHA = clamp(v_color.a * edge * tonemapped, 0.0, 1.0);
+	ALPHA = clamp(v_color.a * edge * tonemapped * v_active_visibility, 0.0, 1.0);
 }

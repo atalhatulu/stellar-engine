@@ -18,6 +18,7 @@ varying float v_arm_param;
 varying float v_num_arms;
 varying float v_angular_ratio;
 varying float v_apparent_flux;
+varying float v_inclination_ratio;
 
 void vertex() {
 	v_tint_color = COLOR;
@@ -38,6 +39,11 @@ void vertex() {
 	
 	float min_size_ly = cam_dist * (u_min_pixel_size * 0.0006);
 	float final_radius = max(gal_radius_ly, min_size_ly * 0.5);
+	vec3 view_direction = normalize(-view_center);
+	vec3 disk_normal_view = normalize((MODELVIEW_MATRIX * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+	// Gerçek disk yöneliminden görünen basıklığı çıkar. Geometri kameraya dönük
+	// kalırken şekil yüz yüze bakışta daire, kenar bakışta ince elips olur.
+	v_inclination_ratio = clamp(abs(dot(disk_normal_view, view_direction)), 0.16, 1.0);
 	
 	// Galaksi açısal çözünürlük oranı: (1.0 = tam detaylı sarmal galaksi, 0.0 = alt-piksel uzak nokta)
 	v_angular_ratio = clamp((gal_radius_ly - min_size_ly * 0.15) / max(min_size_ly * 0.70, 0.001), 0.0, 1.0);
@@ -45,19 +51,16 @@ void vertex() {
 	// SpaceEngine Fotometrik Parlaklık Koruması:
 	v_apparent_flux = clamp(sqrt(v_angular_ratio) * 1.3, 0.40, 1.15);
 	
-	// SpaceEngine Modeli: Yakındayken galaksinin gerçek 3D uzaysal disk eğimini korur,
-	// uzaktayken alt-piksel kaybolmasını önlemek için pürüzsüz biçimde billboard'a yaklaşır.
-	vec3 oriented_view_pos = (MODELVIEW_MATRIX * vec4(VERTEX * (final_radius * 2.0), 1.0)).xyz;
+	// Quad her mesafede kameraya dönük kalır. Diskin 3B yönelimi yukarıdaki
+	// analitik elips izdüşümünde korunur; böylece yandan bakınca düzlem kaybolmaz.
 	vec3 billboard_view_pos = view_center + vec3(VERTEX.x * final_radius * 2.0, VERTEX.y * final_radius * 2.0, 0.0);
-	float billboard_blend = clamp(1.0 - v_angular_ratio * 1.5, 0.0, 1.0);
-	vec3 final_view_pos = mix(oriented_view_pos, billboard_view_pos, billboard_blend);
-	
-	POSITION = PROJECTION_MATRIX * vec4(final_view_pos, 1.0);
+	POSITION = PROJECTION_MATRIX * vec4(billboard_view_pos, 1.0);
 }
 
 void fragment() {
 	vec2 uv = UV * 2.0 - 1.0;
-	float r = length(uv);
+	vec2 projected_uv = vec2(uv.x, uv.y / v_inclination_ratio);
+	float r = length(projected_uv);
 	
 	if (r > 1.0) {
 		discard;
@@ -70,7 +73,7 @@ void fragment() {
 		// 0: SARMAL GALAKSİ (Spiral: Sa, Sb, Sc, SB)
 		// Parlak çekirdek + Logaritmik spiral kollar + Karanlık Toz Şeritleri + Genç Mavi Yıldız Düğümleri
 		float core = exp(-r * 8.5) * 1.6;
-		float angle = atan(uv.y, uv.x);
+		float angle = atan(projected_uv.y, projected_uv.x);
 		float twist = v_arm_param * 5.2;
 		float log_r = log(r + 0.025);
 		float arm_pattern = cos(v_num_arms * angle - twist * log_r);
@@ -93,26 +96,37 @@ void fragment() {
 		col = mix(core_col, arm_col, smoothstep(0.08, 0.42, r));
 	} else if (v_morphology < 1.5) {
 		// 1: ELİPTİK GALAKSİ (Elliptical: E0 - E7)
-		float axis_ratio = clamp(v_arm_param, 0.4, 1.0);
-		vec2 ellip_uv = vec2(uv.x, uv.y / axis_ratio);
+		// de Vaucouleurs R^(1/4) profili + Merkezi çekirdek + Küresel yıldız kümesi halesi
+		float axis_ratio = clamp(v_arm_param, 0.35, 1.0);
+		vec2 ellip_uv = vec2(projected_uv.x, projected_uv.y / axis_ratio);
 		float r_ellip = length(ellip_uv);
 		if (r_ellip > 1.0) discard;
 		
-		float profile = exp(-4.0 * pow(r_ellip, 0.38));
-		intensity = profile * 1.7;
-		col = vec3(1.0, 0.84, 0.58);
+		float core = exp(-r_ellip * 9.0) * 1.8;
+		float profile = exp(-3.6 * pow(r_ellip, 0.36)) * 1.4;
+		// İnce küresel küme (globular cluster) tanecik dokusu
+		float clusters = (sin(ellip_uv.x * 32.0 + ellip_uv.y * 24.0) * sin(ellip_uv.y * 36.0)) * 0.08 * smoothstep(0.1, 0.6, r_ellip);
+		intensity = core + profile + clusters;
+		col = mix(vec3(1.0, 0.92, 0.75), vec3(1.0, 0.82, 0.55), smoothstep(0.05, 0.5, r_ellip));
 	} else if (v_morphology < 2.5) {
-		// 2: DÜZENSİZ / CÜCE GALAKSİ (Irregular)
-		float noise_wave = sin(uv.x * 8.0 + uv.y * 6.0) * cos(uv.y * 10.0);
-		float clumpy = exp(-r * 3.2) * (0.8 + 0.4 * noise_wave);
-		intensity = clumpy * 1.35;
-		col = mix(vec3(0.55, 0.78, 1.0), vec3(1.0, 0.65, 0.85), abs(noise_wave));
+		// 2: DÜZENSİZ / CÜCE GALAKSİ (Irregular: LMC/SMC benzeri)
+		// Kaotik gaz filamentleri ve aktif mavi/mor yıldız oluşum düğümleri
+		float noise_wave = sin(projected_uv.x * 9.0 + projected_uv.y * 7.0) * cos(projected_uv.y * 12.0 - projected_uv.x * 5.0);
+		float knots = pow(max(sin(projected_uv.x * 16.0 + projected_uv.y * 14.0), 0.0), 3.0) * 0.45;
+		float clumpy = exp(-r * 3.2) * (0.85 + 0.35 * noise_wave) + knots;
+		intensity = clumpy * 1.5;
+		col = mix(vec3(0.50, 0.78, 1.0), vec3(1.0, 0.55, 0.75), abs(noise_wave));
 	} else {
-		// 3: MERCEKSİ GALAKSİ (Lenticular: S0)
-		float core = exp(-r * 7.5) * 1.7;
-		float disk = exp(-r * 2.8) * 0.65;
-		intensity = core + disk;
-		col = vec3(0.96, 0.90, 0.78);
+		// 3: MERCEKSİ GALAKSİ (Lenticular: S0 - Sombrero / Centaurus A Tipi)
+		// Parlak çekirdek + İnce merceksi disk + Diski ikiye bölen KARANLIK TOZ KUŞAĞI
+		float core = exp(-r * 8.0) * 1.9;
+		vec2 disk_uv = vec2(projected_uv.x, projected_uv.y / 0.32); // Eğimli basık disk
+		float r_disk = length(disk_uv);
+		float disk = exp(-r_disk * 2.5) * 1.2;
+		// Diski boydan boya kesen belirgin karanlık toz bandı
+		float dust_lane = smoothstep(0.015, 0.085, abs(projected_uv.y)) * smoothstep(0.04, 0.60, r);
+		intensity = core + disk * dust_lane;
+		col = mix(vec3(1.0, 0.90, 0.72), vec3(0.92, 0.88, 0.80), smoothstep(0.08, 0.45, r));
 	}
 	
 	// SpaceEngine PSF (Point Spread Function) Çekirdeği
@@ -132,5 +146,5 @@ void fragment() {
 	float tonemapped = raw_val / (1.0 + raw_val * 0.26);
 	
 	ALBEDO = blended_color * tonemapped;
-	ALPHA = clamp(tonemapped, 0.0, 1.0);
+	ALPHA = clamp(tonemapped * v_tint_color.a, 0.0, 1.0);
 }

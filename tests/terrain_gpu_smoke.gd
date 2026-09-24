@@ -12,6 +12,9 @@ func _initialize() -> void:
 func capture(path: String) -> void:
 	for i in range(12):
 		await process_frame
+	if DisplayServer.get_name() == "headless":
+		print("CAPTURED [%s]: headless skipped" % path)
+		return
 	await RenderingServer.frame_post_draw
 	var img = root.get_texture().get_image()
 	if img != null:
@@ -21,7 +24,7 @@ func capture(path: String) -> void:
 func run() -> void:
 	print("--- TERRAIN GPU TEST & GÖRSEL DOĞRULAMA BAŞLATILIYOR ---")
 	Engine.max_fps = 60
-	var scene = load("res://scenes/main_star.tscn").instantiate()
+	var scene = load("res://main.tscn").instantiate()
 	scene.seed_value = 424243
 	root.add_child(scene)
 	
@@ -30,6 +33,7 @@ func run() -> void:
 		scene.camera.set_process_input(false)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	
+	scene._update_active_system_bodies()
 	for f in range(60):
 		await process_frame
 		
@@ -112,15 +116,9 @@ func run() -> void:
 		
 	await capture("/home/teha/Desktop/terrain_landed.png")
 	
-	# 3. EVA Yüzey Yürüyüşü ve Onlarca Metre Ölçekli Arazi Detayı
-	print("3. EVA moduna geçiliyor...")
-	var sc: Spacecraft = scene.spacecraft
-	if sc != null:
-		sc.is_airlock_open = true
-		sc.airlock_anim_progress = 1.0
-	scene.start_eva_mode()
+	# 3. Serbest kamera ile onlarca metre ölçekli arazi detayı
+	print("3. Serbest kamera yüzey görünümüne geçiliyor...")
 	if scene.camera != null:
-		scene.camera.eva_third_person = true
 		scene.camera.rot_x = deg_to_rad(-8.0)
 		scene.camera.rot_y = deg_to_rad(45.0)
 	
@@ -129,7 +127,7 @@ func run() -> void:
 	for f in range(50):
 		await process_frame
 		
-	await capture("/home/teha/Desktop/terrain_eva.png")
+	await capture("/home/teha/Desktop/terrain_free_camera.png")
 	
 	print("--- TERRAIN GPU TESTİ BAŞARIYLA TAMAMLANDI ---")
 	quit(0)

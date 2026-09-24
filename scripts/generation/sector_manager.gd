@@ -42,6 +42,7 @@ func generate_sector(coord: Vector3i) -> Array:
 	
 	var stars: Array = []
 	var star_count: int = rng.randi_range(24, 40)
+	var layout := StellarGroupGenerator.build_layout(universe_seed, coord, star_count, SECTOR_SIZE)
 	
 	var base_pos := Vector3(
 		float(coord.x) * SECTOR_SIZE,
@@ -50,53 +51,47 @@ func generate_sector(coord: Vector3i) -> Array:
 	)
 	
 	for i in range(star_count):
-		stars.append(_build_star_data(rng, coord, i, base_pos))
+		var star_rng := RandomNumberGenerator.new()
+		star_rng.seed = get_sector_seed(universe_seed ^ ((i + 1) * 0x6C8E9CF5), coord)
+		stars.append(_build_star_data(star_rng, coord, i, base_pos, layout[i], universe_seed))
 		
 	return stars
 
 # Tek bir yıldızı (örneğin S1 ana yıldızını) tüm sektörü üretmeden doğrudan türetir (Aşama 7C)
 # generate_sector(coord)[target_index] ile %100 birebir aynı veriyi üretir.
 static func generate_single_star(u_seed: int, coord: Vector3i, target_index: int = 0) -> StarData:
-	var rng = RandomNumberGenerator.new()
-	rng.seed = get_sector_seed(u_seed, coord)
-	
-	var star_count: int = rng.randi_range(24, 40)
-	if target_index >= star_count:
-		target_index = target_index % star_count
-		
-	var base_pos := Vector3(
-		float(coord.x) * SECTOR_SIZE,
-		float(coord.y) * SECTOR_SIZE,
-		float(coord.z) * SECTOR_SIZE
-	)
-	
-	# Hedef yıldıza kadar olan önceki adımları deterministik tüket
-	for i in range(target_index):
-		var _sys_seed = int(rng.randi()) & 0x7FFFFFFF
-		var _lx = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-		var _ly = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-		var _lz = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-		var _sr = rng.randf()
-		var _tr = rng.randf()
-		
-	return _build_star_data(rng, coord, target_index, base_pos)
+	var count_rng := RandomNumberGenerator.new()
+	count_rng.seed = get_sector_seed(u_seed, coord)
+	var star_count := count_rng.randi_range(24, 40)
+	var index := target_index % star_count
+	var star_rng := RandomNumberGenerator.new()
+	star_rng.seed = get_sector_seed(u_seed ^ ((index + 1) * 0x6C8E9CF5), coord)
+	var base_position := Vector3(coord) * SECTOR_SIZE
+	var layout := StellarGroupGenerator.build_entry(u_seed, coord, index, SECTOR_SIZE)
+	return _build_star_data(star_rng, coord, index, base_position, layout, u_seed)
 
 # Tekil yıldız özelliklerini üreten merkezi deterministik üretim boru hattı (DRY)
-static func _build_star_data(rng: RandomNumberGenerator, coord: Vector3i, index: int, base_pos: Vector3) -> StarData:
+static func _build_star_data(rng: RandomNumberGenerator, coord: Vector3i, index: int, base_pos: Vector3, layout: Dictionary, u_seed: int) -> StarData:
 	var star = StarData.new()
 	star.unique_id = "SEC_%d_%d_%d_S%d" % [coord.x, coord.y, coord.z, index + 1]
-	star.name = "S_%d_%d_%d_%d" % [coord.x, coord.y, coord.z, index + 1]
+	star.name = CelestialNameGenerator.star_name(star.system_seed)
 	star.sector_coord = coord
 	star.system_seed = int(rng.randi()) & 0x7FFFFFFF
 	
 	# Sektör sınırları içinde hafif iç kenar marjı (%5-%95) ile yerleştirme
-	var local_x = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-	var local_y = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
-	var local_z = rng.randf_range(0.05 * SECTOR_SIZE, 0.95 * SECTOR_SIZE)
+	var local: Vector3 = layout.position
 	
-	star.stellar_x = base_pos.x + local_x
-	star.stellar_y = base_pos.y + local_y
-	star.stellar_z = base_pos.z + local_z
+	star.stellar_x = base_pos.x + local.x
+	star.stellar_y = base_pos.y + local.y
+	star.stellar_z = base_pos.z + local.z
+	star.group_id = layout.group_id
+	star.group_name = layout.group_name
+	star.group_type = layout.group_type
+	star.group_center = base_pos + Vector3(layout.group_center)
+	star.group_member_index = layout.group_member_index
+	var constellation := ConstellationGenerator.build_entry(u_seed, coord, local, SECTOR_SIZE)
+	star.constellation_id = constellation.id
+	star.constellation_name = constellation.name
 	
 	# Spektral tip, yarıçap, parlaklık ve renk dağılımı (Canlı Spektral Renkler)
 	var star_roll = rng.randf()
@@ -148,6 +143,8 @@ static func _build_star_data(rng: RandomNumberGenerator, coord: Vector3i, index:
 		star.light_color = Color(1.0, 0.32, 0.15)
 		star.light_energy = rng.randf_range(1.8, 2.4)
 		star.luminosity = rng.randf_range(2.2, 4.2)
+
+	StellarEvolutionModel.apply(star, star.system_seed)
 		
 	# Gelecek uyumluluğu ve nadir sistem sınıflandırması (Aşama 7)
 	var type_roll = rng.randf()

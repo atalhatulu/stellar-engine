@@ -2,7 +2,7 @@ extends RefCounted
 
 # ─────────────────────────────────────────────────────────────────────────────
 # KOZMOLOJİK GALAKSİ ARKA PLAN İŞ PARÇACIĞI (COSMOLOGICAL GALAXY FIELD JOB)
-# main_star.tscn'deki StarFieldJob mimarisinin galaksilerarası kozmolojik ölçeğe
+# main.tscn'deki StarFieldJob mimarisinin galaksilerarası kozmolojik ölçeğe
 # (Milyonlarca Işık Yılı / Mpc) uyarlanmış halidir.
 # 15.000–25.000 derin uzay galaksisini arka planda iş parçacığı (worker thread)
 # üzerinde üretir, kozmik ağ (cosmic web) filament dağılımını hesaplar ve

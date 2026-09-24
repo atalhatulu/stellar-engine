@@ -11,6 +11,11 @@ func _init() -> void:
 
 func apply_star_data(data: StarData) -> void:
 	catalog_id = data.unique_id
+	unique_id = data.unique_id
+	parent_id = data.parent_id
+	galaxy_id = data.galaxy_id
+	system_id = data.unique_id
+	body_seed = data.system_seed
 	name = data.name + " (" + data.spectral_type + ")"
 	real_radius = data.radius
 	real_position = Vector3.ZERO
@@ -26,6 +31,11 @@ func apply_star_data(data: StarData) -> void:
 	light_color = data.light_color
 	light_energy = data.light_energy
 	luminosity = data.luminosity
+	mass_solar = data.mass_solar
+	age_billion_years = data.age_billion_years
+	temperature_kelvin = data.temperature_kelvin
+	metallicity = data.metallicity
+	stellar_activity = data.stellar_activity
 	spectral_type = data.spectral_type
 	system_type = data.system_type
 	system_diameter = data.system_radius_m * 2.0 if data.system_radius_m > 0.0 else 2000000000000.0

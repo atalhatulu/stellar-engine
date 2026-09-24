@@ -83,13 +83,23 @@ func get_relative_meters(other: GalacticPosition) -> Vector3:
 	)
 	return sec_offset + (local_pos - other.local_pos)
 
+# Galaktik LOD ve seyahat hesaplarında metre vektörünün karesini almak büyük
+# mesafelerde float taşmasına (INF) yol açar. Farkı önce LY ölçeğine indir.
+func get_relative_light_years(other: GalacticPosition) -> Vector3:
+	var d_sec := sector - other.sector
+	return Vector3(
+		float(d_sec.x) * SECTOR_SIZE_LY,
+		float(d_sec.y) * SECTOR_SIZE_LY,
+		float(d_sec.z) * SECTOR_SIZE_LY
+	) + ((local_pos - other.local_pos) / LIGHT_YEAR)
+
 # Diğer konuma olan mutlak mesafeyi (metre) döner
 func distance_to_meters(other: GalacticPosition) -> float:
-	return get_relative_meters(other).length()
+	return distance_to_ly(other) * LIGHT_YEAR
 
 # Diğer konuma olan mesafeyi ışık yılı cinsinden döner
 func distance_to_ly(other: GalacticPosition) -> float:
-	return distance_to_meters(other) / LIGHT_YEAR
+	return get_relative_light_years(other).length()
 
 # Küresel yaklaşık metre pozisyonunu döner (yalnızca tekil Vector3 isteyen legacy fonksiyonlar için)
 func to_meters_approx() -> Vector3:

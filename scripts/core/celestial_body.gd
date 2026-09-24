@@ -3,6 +3,11 @@ extends RefCounted
 
 var name: String
 var type: String
+var unique_id: String = ""
+var parent_id: String = ""
+var galaxy_id: String = ""
+var system_id: String = ""
+var body_seed: int = 0
 var real_radius: float
 var real_position: Vector3
 var local_position: Vector3
@@ -10,6 +15,7 @@ var is_lod: bool = false
 
 var visual_mesh: MeshInstance3D
 var atmosphere_mesh: MeshInstance3D # Atmosfer efekti için mesh
+var ring_mesh: MeshInstance3D
 var orbit_line_mesh: MeshInstance3D # Yörünge çizgisi efekti için mesh
 var orbit_sample_points: PackedVector3Array = PackedVector3Array() # 3B uzaydaki yörünge örnek noktaları
 var lod_sprite: Sprite3D # Yıldızların uzaktaki 2D görünümü için Sprite3D
@@ -36,6 +42,11 @@ var max_visibility_distance: float = INF
 var light_color: Color = Color.WHITE
 var light_energy: float = 1.0
 var luminosity: float = 1.0
+var mass_solar: float = 1.0
+var age_billion_years: float = 4.6
+var temperature_kelvin: float = 5778.0
+var metallicity: float = 0.0
+var stellar_activity: float = 1.0
 var spectral_type: String = ""
 var system_type: String = "STANDARD"
 var planet_type: String = ""
@@ -49,6 +60,38 @@ var roughness: float = 0.5
 var metallic: float = 0.0
 var has_atmosphere: bool = false
 var atmosphere_color: Color = Color(0, 0, 0, 0)
+
+# Gezegen iklimi ve yaşanabilirlik verileri
+var climate_zone: String = ""
+var habitable_zone_inner: float = 0.0
+var habitable_zone_outer: float = 0.0
+var mass_earth: float = 0.0
+var surface_gravity_g: float = 0.0
+var atmosphere_pressure_bar: float = 0.0
+var surface_temperature_k: float = 0.0
+var water_fraction: float = 0.0
+var habitability_score: float = 0.0
+var is_habitable: bool = false
+var atmosphere_composition: Dictionary = {}
+var atmosphere_class: String = "VACUUM"
+var atmosphere_description: String = "Vakum"
+var rotation_period_hours: float = 0.0
+var orbital_period_days: float = 0.0
+var is_tidally_locked: bool = false
+var magnetic_field_earth: float = 0.0
+var radiation_level: float = 0.0
+var life_level: String = "NONE"
+var life_description: String = "Yaşam izi yok"
+var civilization_level: String = "NONE"
+var has_city_lights: bool = false
+var has_subsurface_ocean: bool = false
+var has_rings: bool = false
+var ring_inner_ratio: float = 0.0
+var ring_outer_ratio: float = 0.0
+var ring_density: float = 0.0
+var ring_color: Color = Color.WHITE
+var asteroid_belts: Array[Dictionary] = []
+var asteroid_belt_instances: Array[MultiMeshInstance3D] = []
 
 func get_orbit_position_at_mean_anomaly(mean_anomaly: float) -> Vector3:
 	var e := clampf(orbit_eccentricity, 0.0, 0.82)

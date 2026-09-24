@@ -2,11 +2,7 @@ class_name SystemHUD
 extends Control
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FÜTÜRİSTİK UZAY SİMÜLASYONU VE ASTRONOT KASKI HUD SİSTEMİ (SYSTEM HUD)
-#
-# Düz metin kutusu yerine modüler, cam efektli (glassmorphism), neon kenarlıklı,
-# grafiksel durum barları içeren; Player (Astronot Yaşam Destek), Spacecraft
-# (Korvet Telemetrisi), Navigasyon ve Hedef Kartı barındıran gelişmiş arayüz.
+# Modüler serbest uçuş, navigasyon ve gök cismi bilgi arayüzü.
 # ─────────────────────────────────────────────────────────────────────────────
 
 const LIGHT_SPEED: float = 299792458.0
@@ -20,22 +16,14 @@ var lbl_system_name: Label
 var lbl_flight_mode: Label
 var lbl_clock_time: Label
 
-# Sol Alt (Astronot / Player Yaşam Destek)
-var player_card: PanelContainer
-var lbl_player_title: Label
-var bar_oxygen: ProgressBar
-var bar_fuel: ProgressBar
-var lbl_headlamp_status: Label
-var lbl_player_speed: Label
-
-# Sağ Alt (Uzay Gemisi Telemetrisi)
-var ship_card: PanelContainer
-var lbl_ship_title: Label
-var lbl_ship_speed_val: Label
-var lbl_ship_throttle_val: Label
+# Sağ Alt (Serbest Uçuş Telemetrisi)
+var flight_card: PanelContainer
+var lbl_flight_title: Label
+var lbl_flight_speed_val: Label
+var lbl_speed_limit_val: Label
 var bar_throttle: ProgressBar
-var lbl_airlock_state: Label
-var lbl_pilot_state: Label
+var lbl_camera_state: Label
+var lbl_control_state: Label
 
 # Özel Yazı Tipleri (Custom Typography)
 var font_main: Font
@@ -61,6 +49,8 @@ var sf_table_vbox: VBoxContainer
 var sf_resources_box: HFlowContainer
 var lbl_sf_resources_title: Label
 var sf_row_labels: Dictionary = {}
+var stellar_system_summary_cache: Dictionary = {}
+var _detail_layout_signature: String = ""
 
 # Sol Üst Mini Sistem Haritası (Harita Modunda Görünür)
 var mini_system_map: Control
@@ -186,7 +176,7 @@ func _build_hud_layout() -> void:
 	sep1.custom_minimum_size = Vector2(30, 0)
 	top_hbox.add_child(sep1)
 	
-	lbl_flight_mode = _create_label("KOKPİT SEYRİ", Color(0.1, 1.0, 0.6), 15, true)
+	lbl_flight_mode = _create_label("SERBEST UÇUŞ", Color(0.1, 1.0, 0.6), 15, true)
 	top_hbox.add_child(lbl_flight_mode)
 	
 	var sep2 = VSeparator.new()
@@ -196,100 +186,54 @@ func _build_hud_layout() -> void:
 	lbl_clock_time = _create_label("ZAMAN: 00:00:00 [1.0x]", Color(1.0, 0.8, 0.2), 15, true)
 	top_hbox.add_child(lbl_clock_time)
 
-	# 3. Sol Alt Panel: Oyuncu / Astronot Yaşam Destek
-	player_card = PanelContainer.new()
-	player_card.custom_minimum_size = Vector2(320, 180)
-	player_card.anchor_left = 0.02
-	player_card.anchor_top = 0.74
-	player_card.anchor_right = 0.23
-	player_card.anchor_bottom = 0.96
-	player_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	player_card.add_theme_stylebox_override("panel", _create_glass_box(Color(0.0, 0.85, 1.0, 0.5), 10, Color(0.02, 0.06, 0.12, 0.85)))
-	add_child(player_card)
+	# 3. Sağ Alt Panel: Serbest Uçuş Telemetrisi
+	flight_card = PanelContainer.new()
+	flight_card.custom_minimum_size = Vector2(330, 180)
+	flight_card.anchor_left = 0.77
+	flight_card.anchor_top = 0.74
+	flight_card.anchor_right = 0.98
+	flight_card.anchor_bottom = 0.96
+	flight_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flight_card.add_theme_stylebox_override("panel", _create_glass_box(Color(0.8, 0.35, 1.0, 0.5), 10, Color(0.04, 0.03, 0.12, 0.85)))
+	add_child(flight_card)
 	
-	var player_vbox = VBoxContainer.new()
-	player_vbox.add_theme_constant_override("separation", 6)
-	player_card.add_child(player_vbox)
+	var flight_vbox = VBoxContainer.new()
+	flight_vbox.add_theme_constant_override("separation", 6)
+	flight_card.add_child(flight_vbox)
 	
-	lbl_player_title = _create_label("ASTRONOT YAŞAM DESTEK (EVA)", Color(0.0, 0.95, 1.0), 14, true)
-	player_vbox.add_child(lbl_player_title)
-	
-	# Oksijen Barı
-	var o2_box = HBoxContainer.new()
-	var lbl_o2 = _create_label("OKSİJEN", Color(0.7, 0.85, 1.0), 12, false)
-	lbl_o2.custom_minimum_size = Vector2(65, 0)
-	o2_box.add_child(lbl_o2)
-	bar_oxygen = _create_progress_bar(Color(0.0, 0.9, 1.0), Color(0.05, 0.15, 0.25))
-	bar_oxygen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar_oxygen.value = 100.0
-	o2_box.add_child(bar_oxygen)
-	player_vbox.add_child(o2_box)
-	
-	# Jetpack Yakıt Barı
-	var fuel_box = HBoxContainer.new()
-	var lbl_f = _create_label("JETPACK", Color(1.0, 0.8, 0.5), 12, false)
-	lbl_f.custom_minimum_size = Vector2(65, 0)
-	fuel_box.add_child(lbl_f)
-	bar_fuel = _create_progress_bar(Color(1.0, 0.6, 0.1), Color(0.25, 0.15, 0.05))
-	bar_fuel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar_fuel.value = 100.0
-	fuel_box.add_child(bar_fuel)
-	player_vbox.add_child(fuel_box)
-	
-	lbl_headlamp_status = _create_label("FENER [H]: AÇIK", Color(0.1, 0.95, 0.6), 12, false)
-	player_vbox.add_child(lbl_headlamp_status)
-	
-	lbl_player_speed = _create_label("EVA HIZI: 0.0 m/s", Color(0.85, 0.9, 1.0), 12, false)
-	player_vbox.add_child(lbl_player_speed)
-
-	# 4. Sağ Alt Panel: Keşif Korveti Uçuş Telemetrisi
-	ship_card = PanelContainer.new()
-	ship_card.custom_minimum_size = Vector2(330, 180)
-	ship_card.anchor_left = 0.77
-	ship_card.anchor_top = 0.74
-	ship_card.anchor_right = 0.98
-	ship_card.anchor_bottom = 0.96
-	ship_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ship_card.add_theme_stylebox_override("panel", _create_glass_box(Color(0.8, 0.35, 1.0, 0.5), 10, Color(0.04, 0.03, 0.12, 0.85)))
-	add_child(ship_card)
-	
-	var ship_vbox = VBoxContainer.new()
-	ship_vbox.add_theme_constant_override("separation", 6)
-	ship_card.add_child(ship_vbox)
-	
-	lbl_ship_title = _create_label("KEŞİF KORVETİ TELEMETRİSİ", Color(0.85, 0.5, 1.0), 14, true)
-	ship_vbox.add_child(lbl_ship_title)
+	lbl_flight_title = _create_label("SERBEST UÇUŞ TELEMETRİSİ", Color(0.85, 0.5, 1.0), 14, true)
+	flight_vbox.add_child(lbl_flight_title)
 	
 	var speed_box = HBoxContainer.new()
 	var lbl_sp_tag = _create_label("MEVCUT HIZ:", Color(0.85, 0.85, 0.9), 12, false)
 	speed_box.add_child(lbl_sp_tag)
-	lbl_ship_speed_val = _create_label("0.0 m/s", Color(0.3, 1.0, 0.6), 18, true)
-	speed_box.add_child(lbl_ship_speed_val)
-	ship_vbox.add_child(speed_box)
+	lbl_flight_speed_val = _create_label("0.0 m/s", Color(0.3, 1.0, 0.6), 18, true)
+	speed_box.add_child(lbl_flight_speed_val)
+	flight_vbox.add_child(speed_box)
 	
 	var throttle_val_box = HBoxContainer.new()
-	var lbl_th_tag = _create_label("GAZ (MAKS):", Color(0.7, 0.75, 0.85), 11, false)
+	var lbl_th_tag = _create_label("HIZ LİMİTİ:", Color(0.7, 0.75, 0.85), 11, false)
 	throttle_val_box.add_child(lbl_th_tag)
-	lbl_ship_throttle_val = _create_label("343.0 m/s", Color(0.3, 0.85, 1.0), 13, false)
-	throttle_val_box.add_child(lbl_ship_throttle_val)
-	ship_vbox.add_child(throttle_val_box)
+	lbl_speed_limit_val = _create_label("343.0 m/s", Color(0.3, 0.85, 1.0), 13, false)
+	throttle_val_box.add_child(lbl_speed_limit_val)
+	flight_vbox.add_child(throttle_val_box)
 	
-	# İtici Gücü Barı
+	# Hız Seviyesi Barı
 	var throttle_box = HBoxContainer.new()
-	var lbl_th = _create_label("İTİCİ", Color(0.85, 0.7, 1.0), 12, false)
+	var lbl_th = _create_label("HIZ", Color(0.85, 0.7, 1.0), 12, false)
 	lbl_th.custom_minimum_size = Vector2(60, 0)
 	throttle_box.add_child(lbl_th)
 	bar_throttle = _create_progress_bar(Color(0.7, 0.3, 1.0), Color(0.15, 0.05, 0.25))
 	bar_throttle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar_throttle.value = 40.0
 	throttle_box.add_child(bar_throttle)
-	ship_vbox.add_child(throttle_box)
+	flight_vbox.add_child(throttle_box)
 	
-	lbl_airlock_state = _create_label("HAVA KİLİDİ: KİLİTLİ & BASINÇLI", Color(0.1, 0.95, 0.6), 12, false)
-	ship_vbox.add_child(lbl_airlock_state)
+	lbl_camera_state = _create_label("KAMERA: FREE-FLY", Color(0.1, 0.95, 0.6), 12, false)
+	flight_vbox.add_child(lbl_camera_state)
 	
-	lbl_pilot_state = _create_label("DURUM: PİLOT KOLTUĞUNDA", Color(0.0, 0.9, 1.0), 12, false)
-	ship_vbox.add_child(lbl_pilot_state)
+	lbl_control_state = _create_label("DURUM: MANUEL KONTROL", Color(0.0, 0.9, 1.0), 12, false)
+	flight_vbox.add_child(lbl_control_state)
 
 	# 5. Sağ Taraf: Hedef Kilit Bilgi Kartı (Target Card - Geriye dönük uyumluluk)
 	target_card = PanelContainer.new()
@@ -477,7 +421,7 @@ func _draw_visor_and_reticle() -> void:
 	var center = visor_overlay.size * 0.5
 	var glow = Color(0.0, 0.9, 1.0, 0.25)
 	
-	# One precise aim marker, readable against both stars and a dark cockpit.
+	# One precise aim marker, readable against both stars and a dark space.
 	var ink := Color(0.005, 0.015, 0.025, 0.85)
 	var aim := Color(0.78, 0.96, 1.0, 0.95)
 	visor_overlay.draw_circle(center, 3.0, ink)
@@ -637,7 +581,6 @@ func update_hud(main_node: Node3D) -> void:
 	visor_overlay.queue_redraw()
 	
 	var cam = main_node.camera
-	var sc = main_node.spacecraft if main_node.get("spacecraft") != null else (cam.get("spacecraft") if (cam != null and cam.get("spacecraft") != null) else null)
 	var current_speed = cam.get("current_speed") if (cam != null and cam.get("current_speed") != null) else 0.0
 	
 	# 1. Üst Navigasyon Barı
@@ -656,13 +599,6 @@ func update_hud(main_node: Node3D) -> void:
 	if main_node.is_system_map_active:
 		lbl_flight_mode.text = "🛰️ SİSTEM HARİTASI"
 		lbl_flight_mode.modulate = Color(1.0, 0.65, 0.1)
-	elif main_node.get("is_eva_active") == true:
-		if main_node.is_landed:
-			lbl_flight_mode.text = "🌍 GEZEGEN YÜZEYİ (EVA)"
-			lbl_flight_mode.modulate = Color(0.1, 0.95, 0.5)
-		else:
-			lbl_flight_mode.text = "🧑‍🚀 SIFIR-G UZAY YÜRÜYÜŞÜ (EVA)"
-			lbl_flight_mode.modulate = Color(0.0, 0.9, 1.0)
 	elif main_node.get("is_interstellar_autopilot") == true:
 		if main_node.get("is_interstellar_hyper_boost") == true:
 			lbl_flight_mode.text = "⚡ HİPER SEYİR (YILDIZLARARASI)"
@@ -680,62 +616,21 @@ func update_hud(main_node: Node3D) -> void:
 	elif main_node.is_landed:
 		lbl_flight_mode.text = "🌍 İNİŞ YAPILDI (PARK)"
 		lbl_flight_mode.modulate = Color(0.1, 0.95, 0.5)
-	elif sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
-		lbl_flight_mode.text = "KABİN İÇİ SERBEST DOLAŞIM"
-		lbl_flight_mode.modulate = Color(0.0, 0.85, 1.0)
 	else:
-		lbl_flight_mode.text = "KOKPİT SÜRÜŞÜ"
+		lbl_flight_mode.text = "SERBEST UÇUŞ"
 		lbl_flight_mode.modulate = Color(0.1, 0.95, 0.6)
 
-	# 2. Oyuncu / Astronot Yaşam Destek Paneli
-	var o2_val = main_node.get("astronaut_oxygen") if main_node.get("astronaut_oxygen") != null else 100.0
-	var fuel_val = main_node.get("astronaut_fuel") if main_node.get("astronaut_fuel") != null else 100.0
-	bar_oxygen.value = o2_val
-	bar_fuel.value = fuel_val
-	
-	var lamp_on = cam.headlamp.visible if (cam != null and cam.get("headlamp") != null) else false
-	lbl_headlamp_status.text = "FENER [H]: %s" % ("AÇIK" if lamp_on else "KAPALI")
-	lbl_headlamp_status.modulate = Color(0.1, 0.95, 0.6) if lamp_on else Color(0.6, 0.65, 0.7)
-	
-	if main_node.get("is_eva_active") == true:
-		player_card.visible = true
-		ship_card.visible = false
-		lbl_player_title.text = "ASTRONOT YAŞAM DESTEK (EVA)"
-		if main_node.get("is_landed") == true:
-			var cur_spd: float = main_node.WALK_SPEED_PRESETS[main_node.walk_speed_index]
-			var boost_str = " [BOOST]" if main_node.get("is_jetpack_boosting") else ""
-			var jet_str = " [JETPACK]" if main_node.get("is_jetpack_active") else ""
-			lbl_player_speed.text = "YÜZEY: %.1f m/s (Kademe %d)%s%s | GEMİ: %.1f m" % [cur_spd, main_node.walk_speed_index + 1, boost_str, jet_str, main_node.dist_to_ship_eva]
-		else:
-			var eva_vel = main_node.player_velocity.length()
-			var boost_str = " (BOOST)" if main_node.get("is_jetpack_boosting") else ""
-			lbl_player_speed.text = "EVA HIZI: %.1f m/s%s | GEMİ: %.1f m" % [eva_vel, boost_str, main_node.dist_to_ship_eva]
-	elif sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
-		player_card.visible = true
-		ship_card.visible = true
-		lbl_player_title.text = "ASTRONOT (KABİN İÇİ)"
-		lbl_player_speed.text = "KONUM: %s" % ("HAVA KİLİDİ" if sc.near_airlock else ("KOLTUK YANI" if sc.near_pilot_seat else "KORİDOR"))
-	else:
-		player_card.visible = false
-		ship_card.visible = true
+	flight_card.visible = true
 
-	# 3. Keşif Korveti Telemetrisi
+	# 3. Serbest Uçuş Telemetrisi
 	var actual_speed: float = float(main_node.flight_speed_mps) if main_node.get("flight_speed_mps") != null else 0.0
-	if main_node.is_eva_active:
-		lbl_ship_speed_val.text = "GEMİ: %.1f m" % main_node.dist_to_ship_eva
-		lbl_ship_throttle_val.text = "EVA BAĞLANTISI"
-		lbl_ship_speed_val.modulate = Color(0.3, 1.0, 0.6)
-	else:
-		lbl_ship_speed_val.text = _format_speed(actual_speed)
-		var fly_speed_label = main_node.get("fly_speed_label")
-		lbl_ship_throttle_val.text = str(fly_speed_label) if fly_speed_label != null and str(fly_speed_label) != "" else _format_speed(current_speed)
-		if actual_speed > 0.5:
-			lbl_ship_speed_val.modulate = Color(0.3, 1.0, 0.6)
-		else:
-			lbl_ship_speed_val.modulate = Color(0.7, 0.75, 0.8)
+	lbl_flight_speed_val.text = _format_speed(actual_speed)
+	var fly_speed_label = main_node.get("fly_speed_label")
+	lbl_speed_limit_val.text = str(fly_speed_label) if fly_speed_label != null and str(fly_speed_label) != "" else _format_speed(current_speed)
+	lbl_flight_speed_val.modulate = Color(0.3, 1.0, 0.6) if actual_speed > 0.5 else Color(0.7, 0.75, 0.8)
 	
-	if sc != null:
-		var is_warp = (main_node.get("is_interstellar_autopilot") == true) or (main_node.get("is_hyper_autopilot") == true)
+	var is_warp = (main_node.get("is_interstellar_autopilot") == true) or (main_node.get("is_hyper_autopilot") == true)
+	if true:
 		if is_warp:
 			bar_throttle.value = 100.0
 			bar_throttle.modulate = Color(1.0, 0.3, 1.0)
@@ -750,24 +645,15 @@ func update_hud(main_node: Node3D) -> void:
 			bar_throttle.value = 0.0
 			bar_throttle.modulate = Color(0.4, 0.45, 0.55)
 			
-		var airlock_open = sc.is_airlock_open
-		lbl_airlock_state.text = "HAVA KİLİDİ: %s" % ("RAMPA AÇIK (VAKUM)" if airlock_open else "KİLİTLİ & BASINÇLI")
-		lbl_airlock_state.modulate = Color(1.0, 0.35, 0.1) if airlock_open else Color(0.1, 0.95, 0.6)
-		
-		if sc.is_seated_in_cockpit:
-			lbl_pilot_state.text = "KOKPİT: PİLOT KOLTUĞUNDA"
-			lbl_pilot_state.modulate = Color(0.1, 0.95, 0.6)
-		else:
-			lbl_pilot_state.text = "KOKPİT: BOŞ (KABİNDE / DIŞARIDA)"
-			lbl_pilot_state.modulate = Color(1.0, 0.75, 0.2)
+		lbl_camera_state.text = "KAMERA: FREE-FLY"
+		lbl_control_state.text = "DURUM: %s" % ("OTOPİLOT" if main_node.is_autopilot_active or main_node.is_interstellar_autopilot else "MANUEL KONTROL")
 
 	# 4. Sol Üst Mini Sistem Haritası ve Starfield Kartı Yönetimi
 	mini_map_main_ref = main_node
 	if main_node.is_system_map_active:
 		mini_system_map.visible = true
 		mini_system_map.queue_redraw()
-		player_card.visible = false
-		ship_card.visible = false
+		flight_card.visible = false
 		starfield_card.anchor_top = 0.29
 		starfield_card.anchor_bottom = 0.94
 	else:
@@ -777,13 +663,13 @@ func update_hud(main_node: Node3D) -> void:
 
 	# Starfield Bilgi Kartını Güncelle
 	_update_starfield_card(main_node)
-	_update_approach_card(main_node, sc)
+	_update_approach_card(main_node)
 
 	# 5. Gezegen LOD & Chunk Telemetri Kartı
 	_update_lod_debug_card(main_node)
 
 	# 6. Dinamik Eylemler ve Tuş Rozetleri
-	_update_action_badges(main_node, sc)
+	_update_action_badges(main_node)
 
 func _get_approach_body(main_node: Node3D):
 	if main_node.get("is_landed") == true and main_node.get("landed_body") != null:
@@ -814,11 +700,11 @@ func _get_approach_body(main_node: Node3D):
 			nearest_ratio = ratio
 	return nearest
 
-func _update_approach_card(main_node: Node3D, sc: Spacecraft) -> void:
+func _update_approach_card(main_node: Node3D) -> void:
 	var body = _get_approach_body(main_node)
-	var map_or_eva: bool = main_node.get("is_system_map_active") == true or main_node.get("is_eva_active") == true
-	_approach_target_alpha = 0.0 if body == null or map_or_eva else 1.0
-	if body == null or map_or_eva:
+	var map_active: bool = main_node.get("is_system_map_active") == true
+	_approach_target_alpha = 0.0 if body == null or map_active else 1.0
+	if body == null or map_active:
 		return
 
 	var center_distance: float = body.real_position.length()
@@ -840,8 +726,8 @@ func _update_approach_card(main_node: Node3D, sc: Spacecraft) -> void:
 		radial_speed = (main_node.player_velocity as Vector3).dot((-body.real_position).normalized()) * -1.0
 
 	var up: Vector3 = (-body.real_position).normalized() if center_distance > 1.0 else Vector3.UP
-	var ship_up: Vector3 = sc.global_basis.y.normalized() if sc != null else up
-	var angle: float = rad_to_deg(acos(clampf(ship_up.dot(up), -1.0, 1.0)))
+	var camera_up: Vector3 = main_node.camera.global_basis.y.normalized() if main_node.camera != null else up
+	var angle: float = rad_to_deg(acos(clampf(camera_up.dot(up), -1.0, 1.0)))
 	var scan_progress := clampf((8.0 - rel_radius) / 6.8, 0.0, 1.0) * 100.0
 	var sphere_mgr = main_node.get("sphere_chunk_manager")
 	if is_instance_valid(sphere_mgr) and sphere_mgr.has_method("is_active") and sphere_mgr.is_active():
@@ -862,7 +748,7 @@ func _update_approach_card(main_node: Node3D, sc: Spacecraft) -> void:
 	bar_approach_scan.value = scan_progress
 
 	if main_node.is_landed:
-		lbl_approach_status.text = "YÜZEY TEMASI  //  GEMİ PARKTA"
+		lbl_approach_status.text = "YÜZEY TEMASI  //  KAMERA SABİT"
 		lbl_approach_status.modulate = Color(0.30, 0.94, 0.60)
 	elif is_landing and scan_progress >= 92.0:
 		lbl_approach_status.text = "İNİŞ KORİDORU HAZIR  //  ALÇALMA AKTİF"
@@ -953,10 +839,9 @@ func _update_lod_debug_card(main_node: Node3D) -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 # EYLEM TUŞ ROZETLERİ GÜNCELLEMESİ
 # ─────────────────────────────────────────────────────────────────────────────
-func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
+func _update_action_badges(main_node: Node3D) -> void:
 	for child in action_bar.get_children():
 		child.queue_free()
-	var spacecraft_controls_enabled: bool = main_node.get("enable_spacecraft_mode") == null or main_node.get("enable_spacecraft_mode") == true
 		
 	if main_node.is_system_map_active:
 		_add_badge("[M] HARİTADAN ÇIK", Color(1.0, 0.6, 0.1))
@@ -965,27 +850,7 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		_add_badge("[TAB] HUD", Color(0.6, 0.6, 0.7))
 		return
 		
-	if main_node.get("is_eva_active") == true:
-		if main_node.get("is_near_ship_airlock") == true:
-			_add_badge("[E] GEMİYE BİN", Color(0.1, 1.0, 0.5))
-		_add_badge("[WASD] YÜRÜ" if main_node.is_landed else "[WASD] İTİCİ", Color(0.0, 0.85, 1.0))
-		_add_badge("[SPACE] ZIPLA / JETPACK", Color(0.0, 0.85, 1.0))
-		_add_badge("[SHIFT] BOOST", Color(1.0, 0.6, 0.1))
-		_add_badge("[F] KAMERA  [H] FENER", Color(0.5, 0.8, 1.0))
-		return
-		
-	if sc != null and sc.current_view_mode == 1 and not sc.get("is_seated_in_cockpit"):
-		if sc.get("near_airlock"):
-			var act = "HAVA KİLİDİNİ KAPAT" if sc.is_airlock_open else "HAVA KİLİDİNİ AÇ (DIŞARI ÇIK)"
-			_add_badge("[E] %s" % act, Color(0.1, 1.0, 0.5))
-		elif sc.get("near_pilot_seat"):
-			_add_badge("[E] KOLTUĞA OTUR", Color(0.1, 1.0, 0.5))
-		_add_badge("[WASD] KABİNDE YÜRÜ", Color(0.0, 0.85, 1.0))
-		_add_badge("[F] KAMERA MODU", Color(0.8, 0.5, 1.0))
-		_add_badge("[TAB] HUD GİZLE", Color(0.6, 0.6, 0.7))
-		return
-		
-	# Kokpit Sürüşü veya 3. Şahıs
+	# Serbest uçuş
 	if main_node.is_interstellar_autopilot or main_node.is_autopilot_active:
 		if main_node.get("is_landing_autopilot") == true:
 			_add_badge("İNİŞ ALÇALMASI AKTİF", Color(0.1, 1.0, 0.5))
@@ -993,16 +858,10 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		else:
 			_add_badge("[G] HİPER HIZLANDIR", Color(1.0, 0.2, 0.9))
 			_add_badge("[WASD] İPTAL ET", Color(1.0, 0.4, 0.3))
-		if spacecraft_controls_enabled:
-			_add_badge("[F] KAMERA", Color(0.5, 0.8, 1.0))
 	elif main_node.get("is_landed") == true:
 		_add_badge("[WASD] YÜZEY UÇUŞU", Color(0.0, 0.85, 1.0))
-		_add_badge("[SPACE/CTRL] DİKEY İTİCİ", Color(0.2, 0.9, 0.9))
+		_add_badge("[SPACE/CTRL] DİKEY HIZ", Color(0.2, 0.9, 0.9))
 		_add_badge("[G / L] YÖRÜNGEYE KALKIŞ", Color(0.1, 1.0, 0.5))
-		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
-			_add_badge("[E] KOLTUKTAN KALK / EVA", Color(0.0, 0.9, 1.0))
-		if spacecraft_controls_enabled:
-			_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
 	else:
 		var near_planet_for_landing: bool = false
 		if main_node.get("active_system_bodies") != null:
@@ -1015,11 +874,7 @@ func _update_action_badges(main_node: Node3D, sc: Spacecraft) -> void:
 		elif main_node.current_target_index >= 0 or main_node.targeted_star_data != null:
 			_add_badge("[G] OTOPİLOT", Color(0.1, 1.0, 0.5))
 			_add_badge("[C] HEDEF KAPAT", Color(1.0, 0.45, 0.35))
-		if sc != null and sc.current_view_mode == 1 and sc.get("is_seated_in_cockpit"):
-			_add_badge("[E] KOLTUKTAN KALK", Color(0.0, 0.9, 1.0))
 		_add_badge("[WASD] UÇUŞ  [Q] ROLL", Color(0.0, 0.85, 1.0))
-		if spacecraft_controls_enabled:
-			_add_badge("[F] KAMERA", Color(0.8, 0.5, 1.0))
 		_add_badge("[M] HARİTA", Color(1.0, 0.65, 0.1))
 	if show_lod_debug_card:
 		_add_badge("[B/V/Z] LOD DEBUG", Color(0.2, 1.0, 0.4))
@@ -1330,6 +1185,8 @@ func _build_starfield_card() -> void:
 		["MANYETOSFER", "Güçlü Manyetik Alan"],
 		["SU", "Biyolojik Güvenli"],
 		["BİYOM", "Ormanlar & Okyanuslar"],
+		["GEZEGENLER", "—"],
+		["YAŞANABİLİR", "—"],
 		["YARIÇAP", "6.371 km"],
 		["MESAFE", "1.00 AU"],
 		["KAT ETME SÜRESİ", "Durağan"],
@@ -1421,7 +1278,21 @@ func _draw_mini_system_map() -> void:
 		return
 
 	var count = planets.size()
-	var step_r = max_r / float(count + 1)
+	var max_orbit_m := 1.0
+	for planet in planets:
+		max_orbit_m = maxf(max_orbit_m, planet.orbit_radius)
+	if main_node.active_star != null:
+		var zones := HabitabilityModel.get_orbital_zones(main_node.active_star.luminosity)
+		var hot_r := minf(max_r, zones.habitable_inner_m / max_orbit_m * max_r)
+		var habitable_r := minf(max_r, zones.habitable_outer_m / max_orbit_m * max_r)
+		mini_system_map.draw_arc(center, hot_r, 0, TAU, 64, Color(1.0, 0.28, 0.12, 0.38), 4.0)
+		mini_system_map.draw_arc(center, habitable_r, 0, TAU, 64, Color(0.2, 1.0, 0.45, 0.42), 4.0)
+		mini_system_map.draw_arc(center, max_r, 0, TAU, 64, Color(0.25, 0.55, 1.0, 0.22), 3.0)
+		for belt in main_node.active_star.asteroid_belts:
+			var belt_r := minf(max_r, float(belt.radius_m) / max_orbit_m * max_r)
+			for segment in range(18):
+				var start_angle := TAU * float(segment) / 18.0
+				mini_system_map.draw_arc(center, belt_r, start_angle, start_angle + 0.16, 3, Color(0.72, 0.62, 0.45, 0.5), 2.0)
 
 	var selected_body: CelestialBody = null
 	if main_node.current_target_index >= 0 and main_node.current_target_index < main_node.universe.size():
@@ -1429,7 +1300,7 @@ func _draw_mini_system_map() -> void:
 
 	for i in range(count):
 		var p = planets[i]
-		var orb_r = step_r * float(i + 1)
+		var orb_r = maxf(8.0, p.orbit_radius / max_orbit_m * max_r)
 		var is_selected = (p == selected_body)
 
 		# İnce yörünge çemberi
@@ -1480,6 +1351,16 @@ func _apply_survey_info_to_card(info: Dictionary) -> void:
 	lbl_sf_name.text = info["name"]
 	lbl_sf_survey_val.text = "%%%d" % info["survey_pct"]
 	bar_sf_survey.value = float(info["survey_pct"])
+	var detail_rows: Array = info.get("detail_rows", [
+		{"label": "TİP", "value": info.get("type", "Bilinmiyor")},
+		{"label": "YARIÇAP", "value": info.get("radius", "—")},
+		{"label": "MESAFE", "value": info.get("dist", "—")},
+		{"label": "IŞIK SÜRESİ", "value": info.get("light_time", "—")},
+	])
+	var visible_fraction := clampf(float(info.get("survey_pct", 100)) / 100.0, 0.15, 1.0)
+	var visible_row_count := maxi(2, int(ceil(detail_rows.size() * visible_fraction)))
+	detail_rows = detail_rows.slice(0, visible_row_count)
+	_set_starfield_detail_rows(detail_rows)
 
 	if sf_row_labels.has("TİP"):
 		sf_row_labels["TİP"].text = info["type"]
@@ -1495,6 +1376,10 @@ func _apply_survey_info_to_card(info: Dictionary) -> void:
 		sf_row_labels["SU"].text = info["water"]
 	if sf_row_labels.has("BİYOM"):
 		sf_row_labels["BİYOM"].text = info["biome"]
+	if sf_row_labels.has("GEZEGENLER"):
+		sf_row_labels["GEZEGENLER"].text = info.get("planets", "—")
+	if sf_row_labels.has("YAŞANABİLİR"):
+		sf_row_labels["YAŞANABİLİR"].text = info.get("habitable", "—")
 	if sf_row_labels.has("YARIÇAP"):
 		sf_row_labels["YARIÇAP"].text = info["radius"]
 	if sf_row_labels.has("MESAFE"):
@@ -1525,13 +1410,13 @@ func _get_body_survey_info(body: CelestialBody, main_node: Node3D) -> Dictionary
 	info["system"] = "%s SİSTEMİ" % sys_name.to_upper()
 
 	var hash_val = absi(body.name.hash())
-	var survey_pct = 60 + (hash_val % 41)
+	var survey_pct = int(main_node.survey_controller.get_progress(body)) if main_node.enable_survey_system else 100
 	info["survey_pct"] = survey_pct
 
 	var dist_m = body.real_position.length()
 	var current_spd = 0.0
-	if main_node.camera != null:
-		current_spd = float(main_node.camera.current_speed)
+	if main_node.camera != null and main_node.camera.get("current_speed") != null:
+		current_spd = float(main_node.camera.get("current_speed"))
 	if main_node.get("flight_speed_mps") != null and float(main_node.flight_speed_mps) > 0.1:
 		current_spd = float(main_node.flight_speed_mps)
 	info["dist"] = _format_distance(dist_m)
@@ -1553,6 +1438,19 @@ func _get_body_survey_info(body: CelestialBody, main_node: Node3D) -> Dictionary
 			{"sym": "Fe", "name": "Demir", "col": Color(0.9, 0.5, 0.2)},
 			{"sym": "Pl", "name": "Plazma", "col": Color(1.0, 0.4, 0.8)}
 		]
+		var summary := {"planets": 0, "moons": 0, "companions": 0, "belts": body.asteroid_belts.size(), "in_zone": 0, "habitable": 0}
+		for system_body in main_node.universe:
+			if system_body.system_id != body.unique_id:
+				continue
+			if system_body.type == "PLANET":
+				summary.planets += 1
+				if system_body.climate_zone == "HABITABLE": summary.in_zone += 1
+				if system_body.is_habitable: summary.habitable += 1
+			elif system_body.type == "MOON":
+				summary.moons += 1
+			elif system_body.type == "STAR" and system_body != body:
+				summary.companions += 1
+		info["detail_rows"] = CelestialDetailFormatter.for_star(body, info, summary)
 		return info
 
 	var r_ratio = body.real_radius / 6371000.0
@@ -1667,13 +1565,26 @@ func _get_body_survey_info(body: CelestialBody, main_node: Node3D) -> Dictionary
 
 	var calc_g = clampf(r_ratio * g_factor, 0.05, 3.5)
 	info["gravity"] = "%.2f G" % calc_g
+	if body.surface_temperature_k > 0.0:
+		var zone_name: String = str({"HOT": "Sıcak Kuşak", "HABITABLE": "Yaşanabilir Kuşak", "COLD": "Soğuk Kuşak"}.get(body.climate_zone, body.climate_zone))
+		info["type"] = "%s • %s%s" % [info["type"], zone_name, " • YAŞANABİLİR" if body.is_habitable else ""]
+		info["gravity"] = "%.2f G" % body.surface_gravity_g
+		info["temp"] = "%.0f K (%.0f °C)" % [body.surface_temperature_k, body.surface_temperature_k - 273.15]
+		info["atmo"] = "%.2f bar" % body.atmosphere_pressure_bar if body.has_atmosphere else "Yok (Vakum)"
+		info["water"] = "%%%d yüzey suyu" % int(body.water_fraction * 100.0)
+	info["detail_rows"] = CelestialDetailFormatter.for_body(body, info)
 	return info
 
 func _get_stardata_survey_info(star_data, main_node: Node3D) -> Dictionary:
 	var info = {}
 	info["name"] = star_data.name.to_upper()
 	info["system"] = "GALAKTİK SEKTÖR [%d,%d,%d]" % [star_data.sector_coord.x, star_data.sector_coord.y, star_data.sector_coord.z]
-	info["survey_pct"] = 100
+	if star_data.get("constellation_id") != null and star_data.constellation_id != "":
+		info["system"] = "%s • %s TAKIMYILDIZI" % [info["system"], star_data.constellation_name.to_upper()]
+	if star_data.get("group_id") != null and star_data.group_id != "":
+		var group_kind := "AÇIK KÜME" if star_data.group_type == "OPEN_CLUSTER" else "YILDIZ BİRLİĞİ"
+		info["system"] = "%s • %s (%s)" % [info["system"], star_data.group_name.to_upper(), group_kind]
+	info["survey_pct"] = int(main_node.survey_controller.get_progress(star_data)) if main_node.enable_survey_system else 100
 	var gal_pos_m: Vector3 = main_node.get_player_galactic_position()
 	# Metre koordinatları galaksi ölçeğinde ~1e20 değerine ulaşır. Bunların
 	# Vector3.length() karesi tek duyarlıklı bileşenlerde INF üretebilir.
@@ -1709,6 +1620,7 @@ func _get_stardata_survey_info(star_data, main_node: Node3D) -> Dictionary:
 			{"sym": "G-W", "name": "Yerçekim Dalgası", "col": Color(0.9, 0.2, 0.5)}
 		]
 	else:
+		var system_summary := _get_stellar_system_summary(star_data)
 		info["type"] = "Galaktik Yıldız (%s)" % star_data.spectral_type
 		info["gravity"] = "25.0+ G (Kütle Çekim)"
 		info["temp"] = "Spektral Sınıf: %s" % star_data.spectral_type
@@ -1716,13 +1628,69 @@ func _get_stardata_survey_info(star_data, main_node: Node3D) -> Dictionary:
 		info["mag"] = "Devasa Galaktik Manyetosfer"
 		info["water"] = "Yok (Nükleer Füzyon)"
 		info["biome"] = "Plazma Çekirdeği & Korona"
+		info["planets"] = "%d gezegen • %d uydu" % [system_summary.planets, system_summary.moons]
+		if system_summary.habitable > 0:
+			info["habitable"] = "VAR • %d yaşanabilir (%d kuşakta)" % [system_summary.habitable, system_summary.in_zone]
+		else:
+			info["habitable"] = "YOK • %d gezegen kuşakta" % system_summary.in_zone
 		info["resources"] = [
 			{"sym": "H", "name": "Hidrojen", "col": Color(0.35, 0.75, 1.0)},
 			{"sym": "He-3", "name": "Helyum-3", "col": Color(1.0, 0.85, 0.2)},
 			{"sym": "Pl", "name": "Plazma", "col": Color(1.0, 0.4, 0.8)},
 			{"sym": "Fe", "name": "Ağır Element", "col": Color(0.9, 0.5, 0.2)}
 		]
+		info["detail_rows"] = CelestialDetailFormatter.for_star(star_data, info, system_summary)
 	return info
+
+
+func _set_starfield_detail_rows(rows: Array) -> void:
+	var labels: Array[String] = []
+	for row in rows:
+		labels.append(str(row.label))
+	var signature := "|".join(labels)
+	if signature == _detail_layout_signature:
+		for row in rows:
+			if sf_row_labels.has(str(row.label)):
+				sf_row_labels[str(row.label)].text = str(row.value)
+		return
+	_detail_layout_signature = signature
+	for child in sf_table_vbox.get_children():
+		child.queue_free()
+	sf_row_labels.clear()
+	for row in rows:
+		var row_box := HBoxContainer.new()
+		var label := _create_label(str(row.label), Color(0.55, 0.65, 0.75), 10, false)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		label.custom_minimum_size = Vector2(102, 0)
+		row_box.add_child(label)
+		var value := _create_label(str(row.value), Color(0.9, 0.95, 1.0), 11, true, true)
+		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row_box.add_child(value)
+		sf_table_vbox.add_child(row_box)
+		sf_row_labels[str(row.label)] = value
+
+
+func _get_stellar_system_summary(star_data) -> Dictionary:
+	if stellar_system_summary_cache.has(star_data.unique_id):
+		return stellar_system_summary_cache[star_data.unique_id]
+	var star: CelestialBody = SystemGenerator.instantiate_star_from_data(null, star_data)
+	var bodies: Array[CelestialBody] = SystemGenerator.generate_planets_for_star(null, star, false)
+	var summary := {"planets": 0, "moons": 0, "companions": 0, "belts": 0, "in_zone": 0, "habitable": 0}
+	for body in bodies:
+		if body.type == "PLANET":
+			summary.planets += 1
+			if body.climate_zone == "HABITABLE":
+				summary.in_zone += 1
+			if body.is_habitable:
+				summary.habitable += 1
+		elif body.type == "MOON":
+			summary.moons += 1
+		elif body.type == "STAR":
+			summary.companions += 1
+	summary.belts = star.asteroid_belts.size()
+	stellar_system_summary_cache[star_data.unique_id] = summary
+	return summary
 
 func _get_galaxy_survey_info(galaxy, main_node: Node3D) -> Dictionary:
 	var info = {}

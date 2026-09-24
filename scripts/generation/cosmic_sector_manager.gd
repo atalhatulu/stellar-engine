@@ -3,7 +3,7 @@ extends RefCounted
 
 # ─────────────────────────────────────────────────────────────────────────────
 # KOZMİK AĞ VE GALAKSİ SEKTÖR YÖNETİCİSİ (COSMIC CHUNK / GRID MANAGER)
-# main_star.tscn'deki SectorManager mimarisinin galaktik ölçeğe (Mpc / Milyon LY)
+# main.tscn'deki SectorManager mimarisinin galaktik ölçeğe (Mpc / Milyon LY)
 # uyarlanmış halidir. Sonsuz evrende galaksileri deterministik chunk'lar halinde
 # üretir, LOD seviyelerini yönetir ve sıfır tahsisle (allocation-free) havuza aktarır.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -175,12 +175,20 @@ func update_sectors(observer_pos_ly: Vector3) -> bool:
 		if not loaded_sectors.has(coord):
 			loaded_sectors[coord] = generate_sector(coord)
 			
-	# Aktif galaksi listesini güncelle
-	active_galaxies.clear()
+	# Aktif galaksi listesini gözlemciye uzaklığa göre güncelle. Dictionary
+	# dolaşım sırası uzamsal değildir; kapasite dolduğunda doğrudan eklemek yakın
+	# galaksileri rastgele listeden düşürüyordu.
+	var candidates: Array[Galaxy] = []
 	for coord in loaded_sectors.keys():
 		var sector_list: Array[Galaxy] = loaded_sectors[coord]
 		for g in sector_list:
-			if active_galaxies.size() < MAX_ACTIVE_GALAXIES:
-				active_galaxies.append(g)
+			candidates.append(g)
+	candidates.sort_custom(func(a: Galaxy, b: Galaxy) -> bool:
+		return a.position_ly.distance_squared_to(observer_pos_ly) < b.position_ly.distance_squared_to(observer_pos_ly)
+	)
+	active_galaxies.clear()
+	var active_count := mini(candidates.size(), MAX_ACTIVE_GALAXIES)
+	for i in range(active_count):
+		active_galaxies.append(candidates[i])
 				
 	return true

@@ -14,12 +14,13 @@ func _initialize() -> void:
 
 func run() -> void:
 	print("--- GEZEGEN LOD VE YÜZEY ÇARPIŞMA REGRESYON TESTİ BAŞLATILIYOR ---")
-	var scene = load("res://scenes/main_star.tscn").instantiate()
+	var scene = load("res://main.tscn").instantiate()
 	scene.seed_value = 98765
 	scene.enable_mid_field = false
 	scene.enable_deep_field = false
 	root.add_child(scene)
 	scene.set_process(false)
+	scene._update_active_system_bodies()
 
 	var test_planet: CelestialBody = null
 	for b in scene.universe:

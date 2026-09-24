@@ -12,7 +12,7 @@ func _initialize() -> void:
 
 func run() -> void:
 	print("--- STARFIELD HARİTA VE CİSİM SEÇİMİ REGRESYON TESTİ BAŞLATILIYOR ---")
-	var scene = load("res://scenes/main_star.tscn").instantiate()
+	var scene = load("res://main.tscn").instantiate()
 	scene.seed_value = 12345
 	scene.enable_mid_field = false
 	scene.enable_deep_field = false
@@ -29,6 +29,7 @@ func run() -> void:
 	check(not hud.starfield_card.visible, "Başlangıçta hiçbir cisim seçili değilken Starfield kartı gizli olmalı")
 
 	# Test 2: Bir gezegen seçildiğinde Starfield kartı açılmalı ve bilgileri doldurulmalı
+	scene._update_active_system_bodies()
 	var test_planet: CelestialBody = null
 	var planet_idx := -1
 	for i in range(scene.universe.size()):
@@ -48,9 +49,9 @@ func run() -> void:
 	check(hud.sf_row_labels.has("YERÇEKİMİ") and hud.sf_row_labels["YERÇEKİMİ"].text.ends_with("G"), "Yerçekimi 'G' birimiyle listelenmeli")
 	check(hud.sf_row_labels.has("SICAKLIK") and hud.sf_row_labels["SICAKLIK"].text.length() > 0, "Sıcaklık bilgisi dolu olmalı")
 	check(hud.sf_row_labels.has("ATMOSFER") and hud.sf_row_labels["ATMOSFER"].text.length() > 0, "Atmosfer bilgisi dolu olmalı")
-	check(hud.sf_row_labels.has("MANYETOSFER") and hud.sf_row_labels["MANYETOSFER"].text.length() > 0, "Manyetosfer bilgisi dolu olmalı")
+	check(hud.sf_row_labels.has("MANYETİK ALAN") and hud.sf_row_labels["MANYETİK ALAN"].text.length() > 0, "Manyetik alan bilgisi dolu olmalı")
 	check(hud.sf_row_labels.has("SU") and hud.sf_row_labels["SU"].text.length() > 0, "Su durumu bilgisi dolu olmalı")
-	check(hud.sf_row_labels.has("BİYOM") and hud.sf_row_labels["BİYOM"].text.length() > 0, "Biyom/yüzey bilgisi dolu olmalı")
+	check(hud.sf_row_labels.has("YAŞAM") and hud.sf_row_labels["YAŞAM"].text.length() > 0, "Yaşam bilgisi dolu olmalı")
 	check(hud.sf_resources_box.get_child_count() > 0, "Gezegene ait renkli element rozetleri oluşturulmuş olmalı")
 
 	# Test 3: C tuşuna basıldığında hedefin ve odağın boşa düşmesi (kullanıcının isteği)
@@ -81,7 +82,7 @@ func run() -> void:
 
 	hud.update_hud(scene)
 	check(hud.mini_system_map.visible, "Sistem haritasında sol üst mini şema görünür olmalı")
-	check(not hud.player_card.visible, "Sistem haritasında yaşam destek paneli gizlenmeli")
+	check(not hud.flight_card.visible, "Sistem haritasında uçuş telemetrisi gizlenmeli")
 
 	# Harita Zoom Testi
 	var dist_before = (scene.virtual_player_position - scene.active_star.get_absolute_position(scene.active_star)).length()

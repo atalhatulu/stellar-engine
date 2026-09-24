@@ -1,6 +1,6 @@
 # Stellar Engine
 
-Stellar Engine, Godot 4 (3D) üzerinde geliştirilmiş; prosedürel yıldız sistemleri, çok katmanlı GPU tabanlı yıldız alanları (starfield), dinamik gezegen LOD (Level of Detail) yüzey arazi üretimi ve EVA (yüzey yürüyüşü) simülasyonunu içeren açık dünya uzay motoru ve keşif simülasyonudur.
+Stellar Engine, Godot 4 (3D) üzerinde geliştirilmiş; prosedürel yıldız sistemleri, çok katmanlı GPU tabanlı yıldız alanları (starfield), dinamik gezegen LOD (Level of Detail) yüzey arazi üretimi ve serbest uçuş kamerası içeren açık dünya uzay motoru ve keşif simülasyonudur.
 
 ---
 
@@ -22,8 +22,8 @@ Stellar Engine, Godot 4 (3D) üzerinde geliştirilmiş; prosedürel yıldız sis
 - **Gelişmiş HUD ve Telemetri**:
   - Cam efektli hedef kilitleme, analiz ve seyahat paneli.
   - Gerçek zamanlı LOD parça telemetri kartı (aktif parça sayısı, grid konumu, kuyruk ve üretim süreleri).
-- **Yüzey ve EVA (Extravehicular Activity)**:
-  - Gezegene iniş ve yüzeyde astronot modunda serbest dolaşım (EVA).
+- **Serbest Kamera Keşfi**:
+  - Uzayda ve gezegen yüzeyinde kesintisiz serbest kamera dolaşımı.
   - Yüzey feneri ve fiziksel zemin etkileşimi.
 
 ---
@@ -32,14 +32,12 @@ Stellar Engine, Godot 4 (3D) üzerinde geliştirilmiş; prosedürel yıldız sis
 
 | Tuş / Girdi | İşlev |
 | :--- | :--- |
-| **W, A, S, D** | Hareket (Gemi / Serbest Kamera / EVA) |
+| **W, A, S, D** | Serbest kamera hareketi |
 | **Mouse Sağ Tık + Sürükle** | Kamera serbest bakış açısı |
 | **Mouse Sol Tık / C** | Hedef gökcismine odaklan / Analiz et / Seçimi temizle |
 | **Shift + Sol Tık** | Seçili gökcismine otopilot ile seyahat |
-| **E** | Koltuk, hava kilidi ve gemiye binme etkileşimi |
 | **L** | Gezegene iniş yap / yüzeyden kalk |
 | **H** | Kask fenerini aç/kapat |
-| **F** | Feneri aç / kapat (EVA) |
 | **Space / Ctrl** | Dikey eksende yükselme / alçalma (Uzay uçuşu) |
 | **Shift (Basılı)** | Hızlı itki / Koşma |
 | **I** | Arazi LOD telemetri kartını aç/kapat |
@@ -66,7 +64,6 @@ Regresyon test setini çalıştırmak için:
 ```bash
 godot --headless -s tests/camera_controls_regression.gd
 godot --headless -s tests/travel_regression.gd
-godot --headless -s tests/eva_regression.gd
 godot --headless -s tests/surface_terrain_regression.gd
 godot --headless -s tests/starfield_map_regression.gd
 godot --headless -s tests/planet_lod_collision_regression.gd

@@ -11,7 +11,7 @@ static var star_glow_texture: GradientTexture2D = null
 static func get_star_glow_texture() -> GradientTexture2D:
 	if star_glow_texture != null:
 		return star_glow_texture
-		
+
 	var grad = Gradient.new()
 	grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
 	grad.offsets = [0.0, 0.15, 0.38, 0.70, 1.0]
@@ -99,8 +99,16 @@ const PLANET_CATALOG = {
 	}
 }
 
-static func pick_planet_type(rng: RandomNumberGenerator, orbit_dist: float, frost_line: float) -> String:
-	if orbit_dist < 0.75 * frost_line:
+static func pick_planet_type(rng: RandomNumberGenerator, orbit_dist: float, frost_line: float, habitable_inner: float = 0.0, habitable_outer: float = 0.0) -> String:
+	if habitable_inner > 0.0 and orbit_dist >= habitable_inner and orbit_dist <= habitable_outer:
+		var roll = rng.randf()
+		if roll < 0.38:
+			return "OCEAN_WORLD"
+		elif roll < 0.74:
+			return "RED_PLANET"
+		else:
+			return "EXOTIC_LIFE"
+	elif orbit_dist < 0.75 * frost_line:
 		# Kavurucu İç Kuşak
 		return "HOT_DESERT" if rng.randf() < 0.52 else "TERRESTRIAL_METALLIC"
 	elif orbit_dist < 1.85 * frost_line:
@@ -179,6 +187,8 @@ static func generate_systems(main_node: Node3D, p_seed: int, star_count: int) ->
 			body.visual_mesh.queue_free()
 		if is_instance_valid(body.atmosphere_mesh):
 			body.atmosphere_mesh.queue_free()
+		if is_instance_valid(body.ring_mesh):
+			body.ring_mesh.queue_free()
 		if is_instance_valid(body.orbit_line_mesh):
 			body.orbit_line_mesh.queue_free()
 		if is_instance_valid(body.lod_sprite):
@@ -305,16 +315,25 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 			
 	if star.spectral_type == "Kırmızı Dev":
 		num_planets = mini(num_planets, 4) # Kırmızı dev genişlerken iç gezegenleri yutmuştur
-		
-	# Gezegensiz sistemlerde erken çıkış
-	if num_planets == 0:
-		star.system_diameter = star.real_radius * 20.0
-		return system_bodies
-		
+
 	const ONE_AU: float = 149597870700.0
 	var lum = max(star.luminosity, 0.05)
 	var frost_line_factor = sqrt(lum)
 	var frost_line = 2.4 * ONE_AU * frost_line_factor
+	var habitable_zones := HabitabilityModel.get_orbital_zones(lum)
+	SystemFeatureGenerator.generate_asteroid_belts(star, frost_line, rng)
+	if main_node != null and spawn_graphics and not star.asteroid_belts.is_empty():
+		AsteroidBeltRenderer.create_for_star(main_node, star)
+	var companion := SystemFeatureGenerator.create_companion(star, rng)
+	if companion != null:
+		system_bodies.append(companion)
+		if main_node != null and spawn_graphics:
+			spawn_body_graphics(main_node, companion)
+
+	# Gezegensiz sistemlerde erken çıkış
+	if num_planets == 0:
+		star.system_diameter = maxf(star.real_radius * 20.0, companion.orbit_radius * 2.0 if companion != null else 0.0)
+		return system_bodies
 	
 	# Başlangıç yörünge mesafesi (Yıldız tipine ve ışımasına göre)
 	var current_orbit_distance: float
@@ -340,7 +359,7 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 		max_orbit_radius = max(max_orbit_radius, current_orbit_distance)
 		
 		# Gezegen Tipini Kuşağa Göre Seç
-		var p_key = pick_planet_type(rng, current_orbit_distance, frost_line)
+		var p_key = pick_planet_type(rng, current_orbit_distance, frost_line, habitable_zones.habitable_inner_m, habitable_zones.habitable_outer_m)
 		var p_config = PLANET_CATALOG[p_key]
 		var planet_radius = rng.randf_range(p_config["min_radius"], p_config["max_radius"])
 		
@@ -351,7 +370,12 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 			planet_local_pos = planet_local_pos.rotated(Vector3.FORWARD, p_inclination)
 			
 		var planet := Planet.new()
-		planet.name = "P_%d_%d (%s)" % [star.star_index, i + 1, p_config["type_name"]]
+		planet.galaxy_id = star.galaxy_id
+		planet.system_id = star.unique_id
+		planet.parent_id = star.unique_id
+		planet.unique_id = CelestialAddress.planet_id(star.unique_id, i)
+		planet.body_seed = CelestialAddress.seed_from_id(planet.unique_id)
+		planet.name = "%s (%s)" % [CelestialNameGenerator.planet_name(star.name, i), p_config["type_name"]]
 		planet.terrain_seed = system_seed + (i + 1) * 104729
 		planet.planet_type = p_key
 		planet.real_radius = planet_radius
@@ -393,6 +417,13 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 			planet.atmosphere_color = atmos_col
 		else:
 			planet.atmosphere_color = Color(0, 0, 0, 0)
+
+		HabitabilityModel.evaluate_planet(planet, star, rng)
+		AtmosphereModel.apply(planet, rng)
+		PlanetaryDynamicsModel.evaluate_planet(planet, star, rng)
+		LifeModel.evaluate_planet(planet, star, rng)
+		RingSystemModel.apply(planet, rng)
+		PlanetVisualProfile.apply(planet)
 			
 		# Uydu Sayısı (Moons)
 		var num_moons = 0
@@ -424,7 +455,12 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 				moon_local_pos = moon_local_pos.rotated(Vector3.FORWARD, m_inclination)
 				
 			var moon := Moon.new()
-			moon.name = "P_%d_%d_%d" % [star.star_index, i + 1, j + 1]
+			moon.galaxy_id = star.galaxy_id
+			moon.system_id = star.unique_id
+			moon.parent_id = planet.unique_id
+			moon.unique_id = CelestialAddress.moon_id(planet.unique_id, j)
+			moon.body_seed = CelestialAddress.seed_from_id(moon.unique_id)
+			moon.name = CelestialNameGenerator.moon_name(planet.name.get_slice(" (", 0), j)
 			moon.terrain_seed = system_seed + (i + 1) * 104729 + (j + 1) * 13007
 			moon.real_radius = moon_radius
 			moon.real_position = moon_local_pos
@@ -452,6 +488,9 @@ static func generate_planets_for_star(main_node: Node3D, star: CelestialBody, sp
 			moon.roughness = rng.randf_range(0.8, 0.95)
 			moon.metallic = 0.0
 			moon.has_atmosphere = false
+			PlanetaryDynamicsModel.evaluate_moon(moon, planet, star, rng)
+			LifeModel.evaluate_moon(moon, planet, star, rng)
+			PlanetVisualProfile.apply(moon)
 			
 			if main_node != null:
 				main_node.total_moons_count += 1
@@ -760,6 +799,10 @@ static func spawn_body_graphics(main_node: Node3D, body: CelestialBody) -> void:
 			mat.normal_enabled = true
 	else:
 		mat.albedo_color = body.base_color
+	if body.has_city_lights:
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.58, 0.16)
+		mat.emission_energy_multiplier = 0.22
 		
 	if "Gaz Devi" in body.name:
 		mat.uv1_scale = Vector3(3.0, 0.2, 1.0)
@@ -796,8 +839,11 @@ static func spawn_body_graphics(main_node: Node3D, body: CelestialBody) -> void:
 	main_node.add_child(sprite_instance)
 	body.lod_sprite = sprite_instance
 	
-	# Atmosfer alanı ve hale küresi kullanıcının talebi doğrultusunda tamamen kaldırıldı
 	body.atmosphere_mesh = null
+	if body.type != "STAR" and body.has_atmosphere:
+		spawn_atmosphere_graphics(main_node, body)
+	if body.type == "PLANET" and body.has_rings:
+		spawn_planet_rings(main_node, body)
 		
 	# Yörünge çizgisi ekle
 	if body.type != "STAR":
@@ -807,7 +853,7 @@ static func spawn_orbit_line(main_node: Node3D, body: CelestialBody) -> void:
 	if body.parent_body == null or is_instance_valid(body.orbit_line_mesh):
 		return
 		
-	var steps = 64 if body.type != "MOON" else 32
+	var steps = 128 if body.type != "MOON" else 72
 	var pts = PackedVector3Array()
 	pts.resize(steps + 1)
 	for i in range(steps + 1):
@@ -826,12 +872,59 @@ static func spawn_orbit_line(main_node: Node3D, body: CelestialBody) -> void:
 	mat.use_point_size = true
 	mat.vertex_color_use_as_albedo = true
 	mat.albedo_color = Color.WHITE
+	mat.emission_enabled = true
+	mat.emission = Color(0.08, 0.55, 1.0)
+	mat.emission_energy_multiplier = 1.35
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	orbit_instance.material_override = mat
 	
 	main_node.add_child(orbit_instance)
 	body.orbit_line_mesh = orbit_instance
+
+
+static func spawn_planet_rings(main_node: Node3D, body: CelestialBody) -> void:
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = body.ring_inner_ratio
+	torus.outer_radius = body.ring_outer_ratio
+	torus.rings = 64
+	torus.ring_segments = 8
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(body.ring_color, 0.32 + body.ring_density * 0.35)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.roughness = 0.85
+	torus.material = material
+	ring.mesh = torus
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring.extra_cull_margin = 2000000.0
+	main_node.add_child(ring)
+	body.ring_mesh = ring
+
+
+static func spawn_atmosphere_graphics(main_node: Node3D, body: CelestialBody) -> void:
+	var atmosphere := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 1.035
+	sphere.height = 2.07
+	sphere.radial_segments = 32
+	sphere.rings = 16
+	var material := StandardMaterial3D.new()
+	material.albedo_color = body.atmosphere_color
+	material.emission_enabled = true
+	material.emission = Color(body.atmosphere_color, 1.0)
+	material.emission_energy_multiplier = 0.18
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.cull_mode = BaseMaterial3D.CULL_FRONT
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	sphere.material = material
+	atmosphere.mesh = sphere
+	atmosphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	atmosphere.extra_cull_margin = 2000000.0
+	main_node.add_child(atmosphere)
+	body.atmosphere_mesh = atmosphere
 
 static func despawn_orbit_line(body: CelestialBody) -> void:
 	if is_instance_valid(body.orbit_line_mesh):
@@ -840,6 +933,7 @@ static func despawn_orbit_line(body: CelestialBody) -> void:
 	body.orbit_sample_points.clear()
 
 static func despawn_body_graphics(body: CelestialBody) -> void:
+	AsteroidBeltRenderer.clear(body)
 	if body.type == "STAR":
 		return # Yıldızlar evrende kalıcı arka plan cisimleridir
 	if is_instance_valid(body.visual_mesh):
@@ -848,6 +942,9 @@ static func despawn_body_graphics(body: CelestialBody) -> void:
 	if is_instance_valid(body.atmosphere_mesh):
 		body.atmosphere_mesh.queue_free()
 		body.atmosphere_mesh = null
+	if is_instance_valid(body.ring_mesh):
+		body.ring_mesh.queue_free()
+		body.ring_mesh = null
 	if is_instance_valid(body.lod_sprite):
 		body.lod_sprite.queue_free()
 		body.lod_sprite = null

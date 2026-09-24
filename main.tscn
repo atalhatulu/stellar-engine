@@ -1,9 +1,11 @@
 [gd_scene format=3 uid="uid://dbgtvkbc28he0"]
 
 [ext_resource type="Script" uid="uid://cxitkbb3ndjfe" path="res://scripts/main.gd" id="1_0xm2m"]
-[ext_resource type="PackedScene" uid="uid://c3q0w2e8m5k1v" path="res://scenes/spacecraft.tscn" id="2_spacecraft"]
 [ext_resource type="PackedScene" uid="uid://b8m3y6yap2v4n" path="res://scenes/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4_hud"]
+[ext_resource type="PackedScene" path="res://scenes/ui/target_overlay.tscn" id="5_overlay"]
+[ext_resource type="Script" path="res://scripts/rendering/stellar_group_overlay.gd" id="6_group_overlay"]
+[ext_resource type="PackedScene" path="res://scenes/ui/discovery_catalog_panel.tscn" id="7_catalog"]
 
 [node name="Main" type="Node3D" unique_id=1845961372]
 script = ExtResource("1_0xm2m")
@@ -13,17 +15,18 @@ deep_field_star_count = null
 debug_star_system_count = null
 seed_value = 1
 run_startup_tests = null
-
-[node name="Spacecraft" parent="." unique_id=313321137 instance=ExtResource("2_spacecraft")]
+enable_survey_system = false
 
 [node name="Player" parent="." unique_id=1912709154 instance=ExtResource("3_player")]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1769217067]
 
+[node name="StellarGroupOverlay" type="Node3D" parent="."]
+script = ExtResource("6_group_overlay")
+
 [node name="HUD" parent="." unique_id=73424985 instance=ExtResource("4_hud")]
 
 [node name="Control" type="Control" parent="." unique_id=1024022490]
-visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -38,3 +41,9 @@ offset_right = 1920.0
 offset_bottom = 1080.0
 mouse_filter = 2
 bbcode_enabled = true
+
+[node name="TargetOverlay" parent="Control" unique_id=891793731 instance=ExtResource("5_overlay")]
+layout_mode = 1
+
+[node name="DiscoveryCatalogPanel" parent="Control" instance=ExtResource("7_catalog")]
+layout_mode = 1

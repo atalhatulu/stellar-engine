@@ -9,7 +9,7 @@ render_mode blend_add, depth_draw_never, cull_disabled, unshaded;
 
 uniform float u_base_scale = 1.35;
 uniform float u_glow_boost = 1.45;
-uniform float u_distance_lod_scale = 0.00036;
+uniform float u_distance_lod_scale = 0.0022;
 
 varying vec4 v_color;
 varying float v_brightness;
@@ -38,7 +38,7 @@ void vertex() {
 	if (v_is_giant > 0.5) {
 		angular_size *= 1.45;
 	}
-	float final_size = clamp(angular_size, 0.002, 32.0);
+	float final_size = clamp(angular_size, 0.01, 48.0);
 	
 	// Tam Küresel Billboard (Kamera uzayında doğrudan düzleme yasla)
 	vec3 view_pos = view_center + vec3(VERTEX.x * final_size, VERTEX.y * final_size, 0.0);
@@ -65,7 +65,7 @@ void fragment() {
 		spikes = (arm_x + arm_y) * 0.55;
 	}
 	
-	float intensity = (core * 1.6 + halo + spikes) * v_brightness * u_glow_boost;
+	float intensity = (core * 2.1 + halo * 1.35 + spikes) * v_brightness * u_glow_boost;
 	vec3 star_rgb = v_color.rgb * intensity;
 	
 	ALBEDO = star_rgb;

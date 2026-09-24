@@ -14,6 +14,7 @@ enum Morphology {
 
 var seed: int = 0
 var system_seed: int = 0
+var unique_id: String = ""
 var designation: String = ""
 var custom_name: String = ""
 var hubble_type: String = ""
@@ -37,15 +38,19 @@ var young_star_boost: float = 1.0
 
 # Kozmolojik Uzay Konumu ve Yönelimi (Işık Yılı)
 var position_ly: Vector3 = Vector3.ZERO
+var galactic_position: GalacticPosition = null
 var rotation_euler: Vector3 = Vector3.ZERO
 var color_tint: Color = Color(0.9, 0.95, 1.0)
 var is_host_galaxy: bool = false
+var extra_flags: Dictionary = {}
 
 static func generate(p_seed: int, p_pos_ly: Vector3 = Vector3.ZERO, p_is_host: bool = false) -> Galaxy:
 	var galaxy := Galaxy.new()
 	galaxy.seed = p_seed
 	galaxy.system_seed = p_seed
+	galaxy.unique_id = CelestialAddress.galaxy_id(p_seed)
 	galaxy.position_ly = p_pos_ly
+	galaxy.galactic_position = GalacticPosition.from_light_years(p_pos_ly)
 	galaxy.is_host_galaxy = p_is_host
 	
 	var rng := RandomNumberGenerator.new()
