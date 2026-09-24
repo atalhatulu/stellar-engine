@@ -1,6 +1,11 @@
 class_name TargetSelectionController
 extends RefCounted
 
+const LIGHT_YEAR: float = 9460730472580800.0
+const ONE_AU: float = 149597870700.0
+const MAX_STAR_DISTANCE_PRIMARY_LY: float = 300.0
+const MAX_STAR_DISTANCE_SECONDARY_LY: float = 180.0
+
 const RESET_VALUES := {
 	"current_target_index": -1,
 	"targeted_star_data": null,
@@ -70,3 +75,41 @@ static func has_selection(host: Node) -> bool:
 		if available.has(property_name) and host.get(property_name) != null:
 			return true
 	return available.has("selected_black_hole") and host.get("selected_black_hole") == true
+
+static func check_distance_limit(host: Node) -> bool:
+	if host == null:
+		return false
+		
+	# 1. Galaktik Yıldız Seçimi Kontrolü (StarData)
+	if host.get("targeted_star_data") != null:
+		if bool(host.get("is_interstellar_autopilot")):
+			return false
+		var star_data = host.get("targeted_star_data")
+		var gal_pos: Vector3 = host.get_player_galactic_position() if host.has_method("get_player_galactic_position") else Vector3.ZERO
+		var star_pos = Vector3(star_data.stellar_x, star_data.stellar_y, star_data.stellar_z)
+		var dist_ly = (star_pos - gal_pos).length() / LIGHT_YEAR
+		var is_primary = str(star_data.unique_id).ends_with("_S1")
+		var max_reach_ly = MAX_STAR_DISTANCE_PRIMARY_LY if is_primary else MAX_STAR_DISTANCE_SECONDARY_LY
+		if dist_ly > max_reach_ly:
+			clear(host)
+			return true
+
+	# 2. Aktif Sistem İçi Cisim Seçimi Kontrolü (Gezegen, Ay, Yıldız)
+	var target_idx = int(host.get("current_target_index")) if host.get("current_target_index") != null else -1
+	var universe = host.get("universe") as Array
+	if universe != null and target_idx >= 0 and target_idx < universe.size():
+		if bool(host.get("is_autopilot_active")) or bool(host.get("is_landing_autopilot")):
+			return false
+		var target_body = universe[target_idx]
+		if target_body != null:
+			var active_star = host.get("active_star")
+			var v_player_pos: Vector3 = host.get("virtual_player_position") if host.get("virtual_player_position") != null else Vector3.ZERO
+			var body_pos = target_body.get_absolute_position(active_star) if target_body.has_method("get_absolute_position") else target_body.position
+			var dist_to_player = (body_pos - v_player_pos).length()
+			var sys_diam: float = active_star.system_diameter if (active_star != null and "system_diameter" in active_star) else 0.0
+			var max_body_dist = maxf(sys_diam * 1.5, 100.0 * ONE_AU)
+			if dist_to_player > max_body_dist:
+				clear(host)
+				return true
+				
+	return false

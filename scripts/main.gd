@@ -1345,6 +1345,7 @@ func _process(delta):
 		var exit_radius := maxf(active_star.system_diameter * 2.0, 150.0 * 149597870700.0)
 		if virtual_player_position.length() > exit_radius:
 			_unload_local_system()
+	TargetSelection.check_distance_limit(self)
 	if _launch_cooldown > 0.0:
 		_launch_cooldown = maxf(0.0, _launch_cooldown - delta)
 	
@@ -2020,51 +2021,42 @@ func _process(delta):
 				target_tag_label.visible = false
 	elif universe.size() > 0 and current_target_index >= 0 and current_target_index < universe.size() and target_reticle != null and camera_3d != null and not is_interstellar_autopilot:
 		var target_body = universe[current_target_index]
-		var dist_to_player = (target_body.get_absolute_position(active_star) - virtual_player_position).length()
+		target_body.real_position = target_body.get_absolute_position(active_star) - virtual_player_position
 		
-		# Eğer aktif sistemden çok uzaklaşıldıysa (> 50 AU), hedefi otomatik bırak
-		if dist_to_player > 50.0 * 149597870700.0:
-			current_target_index = -1
+		var target_world_pos: Vector3
+		if is_instance_valid(target_body.visual_mesh) and target_body.visual_mesh.visible:
+			target_world_pos = target_body.visual_mesh.global_position
+		elif is_instance_valid(target_body.lod_sprite) and target_body.lod_sprite.visible:
+			target_world_pos = target_body.lod_sprite.global_position
+		else:
+			# MultiMesh veya henüz grafik spawn edilmemiş uzak cisimler için
+			var dist = target_body.real_position.length()
+			var dir = target_body.real_position.normalized() if dist > 0.001 else Vector3.FORWARD
+			var render_d = min(dist, visual_distance_limit * 0.92)
+			target_world_pos = dir * render_d
+			
+		var body_pos_in_camera = camera_3d.to_local(target_world_pos)
+		if body_pos_in_camera.z < 0:
+			var screen_pos = camera_3d.unproject_position(target_world_pos)
+			target_reticle.visible = is_hud_visible
+			target_reticle.position = screen_pos - target_reticle.size / 2.0
+			target_reticle.rotation += 1.0 * delta
+			if target_tag_label != null:
+				target_tag_label.visible = is_hud_visible
+				target_tag_label.position = screen_pos + Vector2(24, -18)
+				var dist_m = target_body.real_position.length()
+				var spd = camera.current_speed if camera != null else 0.0
+				if flight_speed_mps > 0.1:
+					spd = flight_speed_mps
+				target_tag_label.text = "%s\n%s\nKAT ETME: %s" % [
+					target_body.name.to_upper(),
+					SystemUI.format_space_distance(dist_m),
+					SystemHUD.format_travel_time(dist_m, spd)
+				]
+		else:
 			target_reticle.visible = false
 			if target_tag_label != null:
 				target_tag_label.visible = false
-		else:
-			target_body.real_position = target_body.get_absolute_position(active_star) - virtual_player_position
-			
-			var target_world_pos: Vector3
-			if is_instance_valid(target_body.visual_mesh) and target_body.visual_mesh.visible:
-				target_world_pos = target_body.visual_mesh.global_position
-			elif is_instance_valid(target_body.lod_sprite) and target_body.lod_sprite.visible:
-				target_world_pos = target_body.lod_sprite.global_position
-			else:
-				# MultiMesh veya henüz grafik spawn edilmemiş uzak cisimler için
-				var dist = target_body.real_position.length()
-				var dir = target_body.real_position.normalized() if dist > 0.001 else Vector3.FORWARD
-				var render_d = min(dist, visual_distance_limit * 0.92)
-				target_world_pos = dir * render_d
-				
-			var body_pos_in_camera = camera_3d.to_local(target_world_pos)
-			if body_pos_in_camera.z < 0:
-				var screen_pos = camera_3d.unproject_position(target_world_pos)
-				target_reticle.visible = is_hud_visible
-				target_reticle.position = screen_pos - target_reticle.size / 2.0
-				target_reticle.rotation += 1.0 * delta
-				if target_tag_label != null:
-					target_tag_label.visible = is_hud_visible
-					target_tag_label.position = screen_pos + Vector2(24, -18)
-					var dist_m = target_body.real_position.length()
-					var spd = camera.current_speed if camera != null else 0.0
-					if flight_speed_mps > 0.1:
-						spd = flight_speed_mps
-					target_tag_label.text = "%s\n%s\nKAT ETME: %s" % [
-						target_body.name.to_upper(),
-						SystemUI.format_space_distance(dist_m),
-						SystemHUD.format_travel_time(dist_m, spd)
-					]
-			else:
-				target_reticle.visible = false
-				if target_tag_label != null:
-					target_tag_label.visible = false
 	else:
 		if target_reticle:
 			target_reticle.visible = false

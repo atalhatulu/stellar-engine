@@ -122,10 +122,16 @@ func rebind(sector_manager, player_gal_pos: Vector3, cam_forward: Vector3 = Vect
 	# 1. Oyuncunun merkez sektörünü bul
 	var player_sector = SectorManager.get_sector_coord(player_gal_pos)
 	
-	# Sabitlenmiş yıldız varsa daima ilk aday olarak ekle
+	# Sabitlenmiş yıldız varsa ve menzil içindeyse (S1 için 300 LY, normal için 180 LY) ilk aday olarak ekle
 	var candidates: Array = []
 	if pinned_star_data != null and pinned_star_data.unique_id != active_star_id:
-		candidates.append(pinned_star_data)
+		var p_star_pos = Vector3(pinned_star_data.stellar_x, pinned_star_data.stellar_y, pinned_star_data.stellar_z)
+		var p_dist_ly = (p_star_pos - player_gal_pos).length() / LIGHT_YEAR
+		var max_pinned_reach = 300.0 if str(pinned_star_data.unique_id).ends_with("_S1") else 180.0
+		if p_dist_ly <= max_pinned_reach:
+			candidates.append(pinned_star_data)
+		else:
+			pinned_star_data = null
 		
 	# 2. 260 Işık Yılı menzilindeki tüm sektörleri topla
 	# 0-160 LY arasında tüm yıldızlar, 160-260 LY arasında sektörlerin ana yıldızları (_S1) korunur.
@@ -291,10 +297,12 @@ func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: flo
 		var is_primary: bool = star.unique_id.ends_with("_S1")
 		
 		# Sektör sınırında yumuşak çapraz sönümleme:
-		# Hedeflenen yıldız (pinned_star_data) oyuncu ne kadar uzaklaşırsa uzaklaşsın ASLA SÖNMEZ!
 		var edge_fade: float = 1.0
 		if is_pinned:
-			edge_fade = 1.0
+			# Sabitlenmiş yıldız menziline kadar parlak kalır; menzil sınırına yaklaşırken doğal olarak söner
+			var max_pinned_reach = 300.0 if is_primary else 180.0
+			edge_fade = clamp((max_pinned_reach - dist_ly) / 40.0, 0.0, 1.0)
+			edge_fade = edge_fade * edge_fade * (3.0 - 2.0 * edge_fade)
 		elif is_primary:
 			# Ana yıldızlar (S1) derin uzayda 300 LY'ye kadar parlar; asla birdenbire yok olmaz
 			edge_fade = clamp((300.0 - dist_ly) / (300.0 - 180.0), 0.0, 1.0)
@@ -303,6 +311,11 @@ func update_transforms(player_gal_pos: Vector3, fov: float, viewport_height: flo
 			# Küçük yan cüce yıldızlar 120-180 LY arasında doğal olarak sönümlenir
 			edge_fade = clamp((180.0 - dist_ly) / (180.0 - 120.0), 0.0, 1.0)
 			edge_fade = edge_fade * edge_fade * (3.0 - 2.0 * edge_fade) # Smoothstep
+		
+		if edge_fade <= 0.001:
+			multimesh.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ZERO), Vector3(0, -99999999, 0)))
+			multimesh.set_instance_color(i, Color(0, 0, 0, 0))
+			continue
 		
 		var star_alpha = (lerp(1.0, 0.65, perceptual_depth) if not is_pinned else 0.9) * edge_fade
 		
