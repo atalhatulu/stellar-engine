@@ -190,13 +190,14 @@ func set_borders_visible(v: bool) -> void:
 
 func set_visibility_alpha(value: float) -> void:
 	_visibility_alpha = clampf(value, 0.0, 1.0)
-	var transparent := 1.0 - _visibility_alpha
+	# Arazi parçaları daima opak olmalıdır; şeffaflık arka plan yıldızlarının
+	# gezegen gövdesinin içinden görünmesine (dither sızıntısı) yol açar.
 	for cd in _all_chunks.values():
 		if is_instance_valid(cd.mesh):
-			cd.mesh.transparency = transparent
+			cd.mesh.transparency = 0.0
 	for border in _all_borders:
 		if is_instance_valid(border):
-			border.transparency = transparent
+			border.transparency = 0.0
 
 
 func get_visibility_alpha() -> float:
@@ -675,7 +676,7 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 	if mat != null:
 		mi.material_override = mat
 	mi.extra_cull_margin = 1000000.0
-	mi.transparency = 1.0 - _visibility_alpha
+	mi.transparency = 0.0
 	mi.visible = (level == 0)
 	add_child(mi)
 
@@ -694,7 +695,7 @@ func _create_chunk(level: int, li: int, lj: int) -> void:
 	if _border_material != null:
 		bmi.material_override = _border_material
 	bmi.extra_cull_margin = 1000000.0
-	bmi.transparency = 1.0 - _visibility_alpha
+	bmi.transparency = 0.0
 	bmi.visible = (level == 0 and _border_visible)
 	add_child(bmi)
 

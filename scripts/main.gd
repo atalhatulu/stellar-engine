@@ -69,6 +69,7 @@ var map_pre_speed_index: int = 3
 var is_landed: bool = false
 var landed_body: CelestialBody = null
 var landed_local_pos: Vector3 = Vector3.ZERO
+var landed_local_dir: Vector3 = Vector3.UP
 var sphere_chunk_manager: PlanetChunkSphere = null  # 360° Kesintisiz Küresel Gezegen Yüzeyi ve LOD Yöneticisi
 var _chunk_target: CelestialBody = null  # Current chunk target planet
 var landed_walk_offset: Vector2 = Vector2.ZERO
@@ -1351,21 +1352,18 @@ func _process(delta):
 	
 	# 1. HAREKET GİRDİLERİ VE OTOPİLOT
 	if is_landed and landed_body != null:
-		var base_landing_pos = landed_local_pos.rotated(Vector3.UP, landed_body.rotation_angle)
-		var local_up = base_landing_pos.normalized()
-		# Gezegenin kendi etrafındaki dönüşünü takip eden kararlı yüzey ve gemi matrisi
-		if landed_surface_initial_basis != Basis.IDENTITY:
-			landed_surface_basis = landed_surface_initial_basis.rotated(Vector3.UP, landed_body.rotation_angle).orthonormalized()
-		else:
-			var planet_x = Vector3.RIGHT.rotated(Vector3.UP, landed_body.rotation_angle)
-			if absf(planet_x.dot(local_up)) > 0.90:
-				planet_x = Vector3.FORWARD.rotated(Vector3.UP, landed_body.rotation_angle)
-			var local_z_fallback = planet_x.cross(local_up).normalized()
-			var local_x_fallback = local_up.cross(local_z_fallback).normalized()
-			landed_surface_basis = Basis(local_x_fallback, local_up, local_z_fallback)
-			
+		var mesh_basis: Basis = landed_body.visual_mesh.global_basis.orthonormalized() if (is_instance_valid(landed_body.visual_mesh) and absf(landed_body.visual_mesh.global_basis.determinant()) > 0.0001) else Basis.IDENTITY
+		
+		# Gezegenin kendi etrafındaki dönüşünü takip eden kararlı yüzey matrisi
+		if landed_surface_initial_basis == Basis.IDENTITY:
+			var ref_up = Vector3.UP if absf(landed_local_dir.dot(Vector3.UP)) < 0.9 else Vector3.FORWARD
+			var init_right = ref_up.cross(landed_local_dir).normalized()
+			var init_back = landed_local_dir.cross(init_right).normalized()
+			landed_surface_initial_basis = Basis(init_right, landed_local_dir, init_back).orthonormalized()
+
+		landed_surface_basis = (mesh_basis * landed_surface_initial_basis).orthonormalized()
 		var local_x = landed_surface_basis.x
-		local_up = landed_surface_basis.y
+		var local_up = landed_surface_basis.y
 		var local_z = landed_surface_basis.z
 		var surface_basis = landed_surface_basis
 		
@@ -1383,18 +1381,11 @@ func _process(delta):
 		var cam_forward = -camera.transform.basis.z
 		var cam_right = camera.transform.basis.x
 		
-		# Bu doğrultuları teğet düzleme (local_x ve local_z) projekte et
 		var walk_forward = cam_forward - cam_forward.project(local_up)
-		if walk_forward.length() > 0.001:
-			walk_forward = walk_forward.normalized()
-		else:
-			walk_forward = -local_z
+		walk_forward = walk_forward.normalized() if walk_forward.length_squared() > 0.001 else -local_z
 			
 		var walk_right = cam_right - cam_right.project(local_up)
-		if walk_right.length() > 0.001:
-			walk_right = walk_right.normalized()
-		else:
-			walk_right = local_x
+		walk_right = walk_right.normalized() if walk_right.length_squared() > 0.001 else local_x
 			
 		# Yürüme ve Yüzey Uçuş Girdileri — WASD yatay, Space/Ctrl dikey
 		var move_dir = Vector3.ZERO
@@ -1404,17 +1395,27 @@ func _process(delta):
 		if Input.is_key_pressed(KEY_D): move_dir += walk_right
 		
 		var current_walk_speed = WALK_SPEED_PRESETS[walk_speed_index]
-		
-		if move_dir.length() > 0.001:
-			move_dir = move_dir.normalized()
-			
-		# Serbest kamera yüzey uçuşu
 		var speed_mult = 3.5 if Input.is_key_pressed(KEY_SHIFT) else 1.0
 		var current_speed_effective = maxf(current_walk_speed * 4.0, 60.0) * speed_mult
+		var planet_r = landed_body.real_radius if landed_body != null else 6371000.0
+
+		if move_dir.length_squared() > 0.001:
+			move_dir = move_dir.normalized()
+			var surface_dist = current_speed_effective * delta
+			var angular_step = surface_dist / maxf(planet_r, 1000.0)
+			var rot_axis_world = local_up.cross(move_dir).normalized()
+			var rot_axis_local = (mesh_basis.inverse() * rot_axis_world).normalized()
+			landed_surface_initial_basis = landed_surface_initial_basis.rotated(rot_axis_local, angular_step).orthonormalized()
+			landed_local_dir = landed_surface_initial_basis.y.normalized()
+			landed_surface_basis = (mesh_basis * landed_surface_initial_basis).orthonormalized()
+			local_x = landed_surface_basis.x
+			local_up = landed_surface_basis.y
+			local_z = landed_surface_basis.z
+			camera.transform.basis = landed_surface_basis * Basis.from_euler(Vector3(camera.rot_x, camera.rot_y, 0.0))
 
 		if Input.is_key_pressed(KEY_SPACE):
-			var liftoff_speed = maxf(80.0, current_speed_effective * 1.5)
-			landed_vertical_velocity = lerpf(landed_vertical_velocity, liftoff_speed, 6.0 * delta)
+			var liftoff_target = maxf(120.0, current_speed_effective * 1.5)
+			landed_vertical_velocity = lerpf(landed_vertical_velocity, liftoff_target, 6.0 * delta)
 		elif Input.is_key_pressed(KEY_CTRL):
 			landed_vertical_velocity = lerpf(landed_vertical_velocity, -45.0, 6.0 * delta)
 		elif landed_vertical_offset > 0.1:
@@ -1422,52 +1423,30 @@ func _process(delta):
 		else:
 			landed_vertical_velocity = 0.0
 
-		# Yatay hareket
-		var dx = move_dir.dot(local_x) * current_speed_effective * delta
-		var dz = move_dir.dot(local_z) * current_speed_effective * delta
-		landed_walk_offset.x += dx
-		landed_walk_offset.y += dz
-		
-		var dv = landed_vertical_velocity * delta
-		landed_vertical_offset += dv
-		
-		# Yere iniş - ZEMİN ALTINA DÜŞMEYİ KESİNLİKLE ENGELLER
+		landed_vertical_offset += landed_vertical_velocity * delta
 		if landed_vertical_offset <= 0.0:
 			landed_vertical_offset = 0.0
 			landed_vertical_velocity = maxf(landed_vertical_velocity, 0.0)
 
-		# Atmosferden uzaya kesintisiz geçiş: Kamera atmosfer sınırını aştığında (35 km) uzay uçuşuna devret
-		var max_atmospheric_height = maxf(landed_body.real_radius * 0.06, 35000.0)
-		if landed_vertical_offset >= max_atmospheric_height:
+		# Eğer oyuncu yerden 60m havalanırsa kesintisiz serbest uçuşa geç
+		if landed_vertical_offset >= 60.0:
 			_launch_from_planet()
 			return
-			
-		# Maksimum atmosferik uçuş tavanı
-		landed_vertical_offset = min(landed_vertical_offset, max_atmospheric_height)
-		
-		# Yatay serbest dolaşım sınırı — dinamik chunk akışı ile 100 km menzil
-		var max_walk = 100000.0
-		landed_walk_offset.x = clamp(landed_walk_offset.x, -max_walk, max_walk)
-		landed_walk_offset.y = clamp(landed_walk_offset.y, -max_walk, max_walk)
-		
-		# Yeni konumdaki yön vektörünü ve analitik arazi yüksekliğini FastNoiseLite üzerinden bul
+
+		# FastNoiseLite üzerinden analitik arazi yüksekliği
 		var noise: FastNoiseLite = null
 		if landed_body.noise_albedo != null and landed_body.noise_albedo.noise != null:
 			noise = landed_body.noise_albedo.noise
 			
-		var planet_r = landed_body.real_radius if landed_body != null else 6371000.0
-		var current_surface_dir = (base_landing_pos + local_x * landed_walk_offset.x + local_z * landed_walk_offset.y).normalized()
-		var local_surface_dir = _body_world_to_local_dir(landed_body, current_surface_dir)
 		var h_ratio = 0.0
 		if noise != null:
-			h_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, local_surface_dir, planet_r)
+			h_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, landed_local_dir, planet_r)
 		var current_surface_r = planet_r * (1.0 + h_ratio)
 		var clearance = 2.5
 		
-		# Oyuncunun global pozisyonunu güncelle (PlanetLandingLab standardında tam küresel araziye kenetli)
-		var current_relative_pos = current_surface_dir * (current_surface_r + clearance + landed_vertical_offset)
+		# Oyuncunun global pozisyonunu güncelle (tam küresel araziye kenetli)
 		var body_abs_pos = landed_body.get_absolute_position(active_star)
-		virtual_player_position = body_abs_pos + current_relative_pos
+		virtual_player_position = body_abs_pos + local_up * (current_surface_r + clearance + landed_vertical_offset)
 		player_velocity = Vector3.ZERO
 		
 	elif is_system_map_active:
@@ -1922,8 +1901,9 @@ func _process(delta):
 				body.visual_mesh.global_position = body.real_position
 				
 			body.visual_mesh.scale = Vector3(final_scale, final_scale, final_scale)
-			var chunk_covering = is_instance_valid(sphere_chunk_manager) and sphere_chunk_manager.is_active() and _chunk_target == body and sphere_chunk_manager.get_visibility_alpha() >= 0.99
+			var chunk_covering = is_instance_valid(sphere_chunk_manager) and sphere_chunk_manager.is_active() and _chunk_target == body and sphere_chunk_manager.visible
 			body.visual_mesh.visible = show_3d_mesh and not chunk_covering
+			body.visual_mesh.transparency = 0.0
 				
 			var mat = body.visual_mesh.mesh.material as StandardMaterial3D
 			if mat and body.visual_mesh.visible:
@@ -2204,15 +2184,15 @@ func _flv_update_flyover_lod() -> void:
 	sphere_chunk_manager.update(Vector3.ZERO, mesh.global_position, visual_radius,
 		virtual_player_position, body_abs_pos, cam_fwd, render_focus_dir)
 
-	# Makro küre ile prosedürel arazi arasında test sahnesi (PlanetLandingLab) standardında pürüzsüz geçiş
+	# Makro küre ile prosedürel arazi arasında şeffaflık/dither olmaksızın keskin ve opak LOD değişimi
 	var radius_ratio: float = dist_to_target / maxf(target.real_radius, 1.0)
-	var terrain_blend: float = 1.0 if (is_landed or is_landing_autopilot) else smoothstep(0.0, 1.0, clampf((5.5 - radius_ratio) / 2.75, 0.0, 1.0))
+	var use_chunk_terrain := is_landed or is_landing_autopilot or (radius_ratio <= 2.2)
 	
-	if terrain_blend > 0.001 and sphere_chunk_manager.is_ready():
+	if use_chunk_terrain and sphere_chunk_manager.is_ready():
 		sphere_chunk_manager.visible = true
-		sphere_chunk_manager.set_visibility_alpha(terrain_blend)
-		target.visual_mesh.transparency = terrain_blend
-		target.visual_mesh.visible = terrain_blend < 0.999
+		sphere_chunk_manager.set_visibility_alpha(1.0)
+		target.visual_mesh.transparency = 0.0
+		target.visual_mesh.visible = false
 	else:
 		sphere_chunk_manager.visible = false
 		target.visual_mesh.transparency = 0.0
@@ -2266,6 +2246,17 @@ func _body_world_to_local_dir(body: CelestialBody, world_dir: Vector3) -> Vector
 		return world_dir.rotated(Vector3.UP, -body.rotation_angle)
 	return world_dir
 
+func _body_local_to_world_dir(body: CelestialBody, local_dir: Vector3) -> Vector3:
+	if body == null:
+		return local_dir
+	if is_instance_valid(body.visual_mesh):
+		var mesh_basis: Basis = body.visual_mesh.global_basis.orthonormalized()
+		if absf(mesh_basis.determinant()) > 0.0001:
+			return (mesh_basis * local_dir).normalized()
+	if body.rotation_angle != 0.0:
+		return local_dir.rotated(Vector3.UP, body.rotation_angle).normalized()
+	return local_dir
+
 func _planet_signed_clearance(relative_position: Vector3, noise: FastNoiseLite, radius: float, guard: float, body: CelestialBody = null) -> float:
 	var distance := safe_vector_length(relative_position)
 	var direction := safe_vector_normalized(relative_position) if distance > 0.001 else Vector3.UP
@@ -2305,7 +2296,9 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vect
 		if body.noise_albedo != null and body.noise_albedo.noise != null:
 			noise = body.noise_albedo.noise
 
-		var safety_clearance = maxf(PLANET_COLLISION_GUARD, safe_vector_length(player_velocity) * delta * 1.5)
+		var near_surface_coll := dist < body.real_radius * 1.15
+		var base_guard := 3.0 if near_surface_coll else PLANET_COLLISION_GUARD
+		var safety_clearance = maxf(base_guard, safe_vector_length(player_velocity) * delta * 1.2)
 		var end_clearance := _planet_signed_clearance(offset, noise, body.real_radius, safety_clearance, body)
 		var closest_clearance := _planet_signed_clearance(closest_offset, noise, body.real_radius, safety_clearance, body)
 		var collided := end_clearance <= 0.0
@@ -2343,7 +2336,7 @@ func _clamp_player_above_planet_surfaces(delta: float = 0.016, frame_start: Vect
 				player_velocity += normal_dir * inward_speed
 
 			# Kalkış esnasında veya gemi yukarı tırmanırken iniş tetiklenemez
-			var is_moving_upward = player_velocity.dot(normal_dir) > 0.5
+			var is_moving_upward = player_velocity.dot(normal_dir) > 0.1
 			if _launch_cooldown > 0.0 or is_moving_upward:
 				continue
 
@@ -3010,10 +3003,12 @@ func _execute_landing(target: CelestialBody) -> void:
 	var approach_vec = virtual_player_position - body_abs_pos
 	var landing_dir = _compute_safe_landing_direction(approach_vec)
 	
+	var mesh_basis: Basis = target.visual_mesh.global_basis.orthonormalized() if (is_instance_valid(target.visual_mesh) and absf(target.visual_mesh.global_basis.determinant()) > 0.0001) else Basis.IDENTITY
+	landed_local_dir = _body_world_to_local_dir(target, landing_dir)
+	
 	var terrain_ratio = 0.0
 	if noise != null:
-		var local_landing_dir = _body_world_to_local_dir(target, landing_dir)
-		terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, local_landing_dir, target.real_radius)
+		terrain_ratio = PlanetChunkSphere.sample_terrain_height_static(noise, landed_local_dir, target.real_radius)
 	var height_at_landing = target.real_radius * terrain_ratio
 	
 	var clearance = 2.5
@@ -3081,7 +3076,7 @@ func _execute_landing(target: CelestialBody) -> void:
 	var view_back = -view_fwd
 	landed_surface_basis = Basis(view_right, local_up, view_back).orthonormalized()
 	# Gezegenin kendi etrafındaki dönüşüne göre sabit referans basis'i
-	landed_surface_initial_basis = landed_surface_basis.rotated(Vector3.UP, -target.rotation_angle).orthonormalized()
+	landed_surface_initial_basis = (mesh_basis.inverse() * landed_surface_basis).orthonormalized()
 	
 	# Kamera yönünü yüzey normaline ve ufka pürüzsüzce hizala
 	camera.transform.basis = landed_surface_basis
@@ -3183,11 +3178,12 @@ func _launch_from_planet() -> void:
 	# IŞINLANMA YOK: Oyuncu yüzeydeki tam fiziksel konumundan kesintisiz serbest uçuşa başlar
 	_launch_cooldown = 4.0
 	var liftoff_up = landed_surface_basis.y
-	# Yüzeyden havalanma güvenlik tamponu (zeminden en az 30 metre yukarı fırlat)
-	virtual_player_position += liftoff_up * maxf(30.0, 50.0 - landed_vertical_offset)
+	# Yüzeyden havalanma güvenlik tamponu (zeminden en az 30 metre yukarıda olmasını sağla)
+	if landed_vertical_offset < 30.0:
+		virtual_player_position += liftoff_up * (30.0 - landed_vertical_offset)
 
 	# Güçlü kalkış itiş hızı: Geminin dikey tırmanış hızını uçuş hızına aktar
-	var liftoff_speed = maxf(landed_vertical_velocity, 80.0)
+	var liftoff_speed = maxf(landed_vertical_velocity, 150.0)
 	player_velocity = liftoff_up * liftoff_speed
 	flight_speed_mps = safe_vector_length(player_velocity)
 
